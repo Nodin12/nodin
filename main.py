@@ -54,9 +54,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 
 if not BOT_TOKEN:
-    raise ValueError("⚠️ Ошибка: BOT_TOKEN не найден в переменных окружения (.env)!")[cite: 8]
+    raise ValueError("⚠️ Ошибка: BOT_TOKEN не найден в переменных окружения (.env)!")
 if not GEMINI_API_KEY:
-    raise ValueError("⚠️ Ошибка: GEMINI_API_KEY не найден в переменных окружения (.env)!")[cite: 8]
+    raise ValueError("⚠️ Ошибка: GEMINI_API_KEY не найден в переменных окружения (.env)!")
 
 admin_id_env = os.getenv("ADMIN_IDS")
 ADMIN_IDS = {int(admin_id_env)} if admin_id_env else set()
@@ -87,7 +87,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     Определяет выбранную пользователем модель и отправляет запрос в соответствующий API.
     Содержит защиту от 503 ошибок для Gemini и заглушки для отсутствующих ключей.
     """
-    model_choice = get_user_model(user_id)[cite: 8]
+    model_choice = get_user_model(user_id)
     
     # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash или Pro)
     if "gemini" in model_choice:
@@ -114,7 +114,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 2. СЕМЕЙСТВО OPENAI (ChatGPT)
     elif "gpt" in model_choice:
         if not openai_client:
-            return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."[cite: 8]
+            return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."
         
         messages = []
         if system_instruction:
@@ -143,7 +143,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 3. СЕМЕЙСТВО ANTHROPIC (Claude)
     elif "claude" in model_choice:
         if not anthropic_client:
-            return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."[cite: 8]
+            return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."
         
         messages = []
         if system_instruction:
@@ -171,7 +171,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 4. СЕМЕЙСТВО XAI (Grok)
     elif "grok" in model_choice:
         if not xai_client:
-            return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."[cite: 8]
+            return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."
         
         messages = []
         if system_instruction:
@@ -191,9 +191,9 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
 # ---------------------------------------------------------------------------
 
-user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}[cite: 8]
-last_transcriptions = {}  # {user_id: "Текст аудио/видео"}[cite: 8]
-active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация[cite: 8]
+user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}
+last_transcriptions = {}  # {user_id: "Текст аудио/видео"}
+active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация
 
 # ---------------------------------------------------------------------------
 # СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ (ЛАКОНИЧНЫЙ И ТОЧНЫЙ ФОРМАТ)
@@ -946,7 +946,7 @@ async def cmd_start(message: types.Message):
     
     add_unique_user(user_id, first_name, username)
     lang = get_user_lang(user_id)
-    user_current_section[user_id] = "ai"  # По умолчанию при старте активен свободный чат
+    user_current_section[user_id] = "ai"
     
     start_text = (
         f"Привет, <b>{first_name}</b>! 🚀 Добро пожаловать в <b>Nodin AI</b>.\n\n"
@@ -970,7 +970,7 @@ async def process_language_choice(callback: types.CallbackQuery):
     
     set_user_lang(user_id, first_name, lang)
     add_unique_user(user_id, first_name, username)
-    user_current_section[user_id] = "ai"  # По умолчанию свободный чат
+    user_current_section[user_id] = "ai"
     
     texts = LEXICON.get(lang, LEXICON["ru"])
     try:
@@ -983,7 +983,7 @@ async def process_language_choice(callback: types.CallbackQuery):
 async def back_to_main(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
-    user_current_section[user_id] = "ai"  # При возврате в главное меню сбрасываем на свободный чат
+    user_current_section[user_id] = "ai"
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["welcome"], reply_markup=get_main_keyboard(user_id, lang), parse_mode=ParseMode.HTML)
 
@@ -1150,7 +1150,7 @@ async def reset_chat_handler(message: types.Message):
 async def ai_chat_section(message: types.Message):
     user_id = message.from_user.id
     user_chat_history[user_id] = []
-    user_current_section[user_id] = "ai"  # Переходим в свободный чат
+    user_current_section[user_id] = "ai"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     
@@ -1174,7 +1174,7 @@ async def quick_change_model_cb(callback: types.CallbackQuery):
 async def voice_section(message: types.Message):
     user_id = message.from_user.id
     user_chat_history[user_id] = []
-    user_current_section[user_id] = "voice"  # Переходим в спецраздел расшифровки аудио/видео
+    user_current_section[user_id] = "voice"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["voice_section"], reply_markup=get_back_keyboard(lang), parse_mode=ParseMode.HTML)
@@ -1296,7 +1296,7 @@ async def process_ai_reply_media(callback: types.CallbackQuery):
         await callback.message.answer("⚠️ Не удалось сгенерировать ответ.")
 
 # ---------------------------------------------------------------------------
-# ОБРАБОТКА МЕДИА (ФОТО, ГОЛОСОВЫЕ, ВИДЕО) СТРОГО СВОИМИ ФУНКЦИЯМИ МОДЕЛИ
+# ОБРАБОТКА МЕДИА (ФОТО, ГОЛОСОВЫЕ, ВИДЕО)
 # ---------------------------------------------------------------------------
 
 @dp.message(F.photo)
@@ -1316,7 +1316,6 @@ async def handle_photo_upload(message: types.Message):
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        # Если выбрана любая модель Gemini (и Flash, и Pro используют свои нативные функции без помощи других ИИ)
         if "gemini" in model_choice:
             contents = [
                 prompt_text,
@@ -1324,11 +1323,11 @@ async def handle_photo_upload(message: types.Message):
             ]
             ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
         elif "gpt" in model_choice:
-            ai_reply = "⚠️ Модель ChatGPT в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений OpenAI."
+            ai_reply = "⚠️ Модель ChatGPT в данный момент настроена только для текста."
         elif "claude" in model_choice:
-            ai_reply = "⚠️ Модель Claude в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений Anthropic."
+            ai_reply = "⚠️ Модель Claude в данный момент настроена только для текста."
         elif "grok" in model_choice:
-            ai_reply = "⚠️ Модель Grok в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений xAI."
+            ai_reply = "⚠️ Модель Grok в данный момент настроена только для текста."
         else:
             ai_reply = "⚠️ Выбранная модель не поддерживает обработку изображений."
 
