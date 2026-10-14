@@ -73,6 +73,12 @@ anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if (anthropic 
 xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if (OpenAI and XAI_API_KEY) else None
 
 # ---------------------------------------------------------------------------
+# МЕНЕДЖЕРЫ СОСТОЯНИЙ (ОПРЕДЕЛЕНИЕ ТЕКУЩЕГО РАЗДЕЛА ПОЛЬЗОВАТЕЛЯ)
+# ---------------------------------------------------------------------------
+
+user_current_section = {} # {user_id: "ai" или "voice" или другой раздел}
+
+# ---------------------------------------------------------------------------
 # УНИВЕРСАЛЬНЫЙ ДИСПЕТЧЕР ЗАПРОСОВ С ПОДДЕРЖКОЙ ВСЕХ ИИ И РЕТРАЕВ
 # ---------------------------------------------------------------------------
 
@@ -83,7 +89,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     """
     model_choice = get_user_model(user_id)[cite: 8]
     
-    # 1. СЕМЕЙСТВО GEMINI (Google)
+    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash или Pro)
     if "gemini" in model_choice:
         delay = 2
         for attempt in range(4):
@@ -905,7 +911,6 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
-    # Обновленный список моделей с раздельными кнопками по твоему списку
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
         ("🔹 Gemini Pro", "model_gemini-pro"),
@@ -941,6 +946,7 @@ async def cmd_start(message: types.Message):
     
     add_unique_user(user_id, first_name, username)
     lang = get_user_lang(user_id)
+    user_current_section[user_id] = "ai"  # По умолчанию при старте активен свободный чат
     
     start_text = (
         f"Привет, <b>{first_name}</b>! 🚀 Добро пожаловать в <b>Nodin AI</b>.\n\n"
@@ -964,6 +970,7 @@ async def process_language_choice(callback: types.CallbackQuery):
     
     set_user_lang(user_id, first_name, lang)
     add_unique_user(user_id, first_name, username)
+    user_current_section[user_id] = "ai"  # По умолчанию свободный чат
     
     texts = LEXICON.get(lang, LEXICON["ru"])
     try:
@@ -976,6 +983,7 @@ async def process_language_choice(callback: types.CallbackQuery):
 async def back_to_main(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
+    user_current_section[user_id] = "ai"  # При возврате в главное меню сбрасываем на свободный чат
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["welcome"], reply_markup=get_main_keyboard(user_id, lang), parse_mode=ParseMode.HTML)
 
@@ -1111,6 +1119,7 @@ async def reset_chat_handler(message: types.Message):
         user_chat_history[user_id] = []
     if user_id in last_transcriptions:
         del last_transcriptions[user_id]
+    user_current_section[user_id] = "ai"
         
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
@@ -1141,13 +1150,13 @@ async def reset_chat_handler(message: types.Message):
 async def ai_chat_section(message: types.Message):
     user_id = message.from_user.id
     user_chat_history[user_id] = []
+    user_current_section[user_id] = "ai"  # Переходим в свободный чат
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     
     chat_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚙️ Сменить модель ИИ", callback_data="quick_change_model")]
     ])
-    # УБРАНО лишнее сообщение "Меню навигации:" по твоему запросу
     await message.answer(texts["ai_section"], reply_markup=chat_kb, parse_mode=ParseMode.HTML)
 
 @dp.callback_query(F.data == "quick_change_model")
@@ -1165,6 +1174,7 @@ async def quick_change_model_cb(callback: types.CallbackQuery):
 async def voice_section(message: types.Message):
     user_id = message.from_user.id
     user_chat_history[user_id] = []
+    user_current_section[user_id] = "voice"  # Переходим в спецраздел расшифровки аудио/видео
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["voice_section"], reply_markup=get_back_keyboard(lang), parse_mode=ParseMode.HTML)
@@ -1172,6 +1182,7 @@ async def voice_section(message: types.Message):
 @dp.message(F.text.in_({v["btn_smm"] for v in LEXICON.values()}))
 async def smm_section(message: types.Message):
     user_id = message.from_user.id
+    user_current_section[user_id] = "smm"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     current_model = get_user_model(user_id)
@@ -1187,6 +1198,7 @@ async def smm_section(message: types.Message):
 @dp.message(F.text.in_({v["btn_study"] for v in LEXICON.values()}))
 async def study_section(message: types.Message):
     user_id = message.from_user.id
+    user_current_section[user_id] = "study"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     current_model = get_user_model(user_id)
@@ -1202,6 +1214,7 @@ async def study_section(message: types.Message):
 @dp.message(F.text.in_({v["btn_profile"] for v in LEXICON.values()}))
 async def profile_section(message: types.Message):
     user_id = message.from_user.id
+    user_current_section[user_id] = "profile"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     current_model = get_user_model(user_id)
@@ -1224,7 +1237,9 @@ async def profile_section(message: types.Message):
 
 @dp.message(F.text.in_({v["btn_news"] for v in LEXICON.values()}))
 async def news_section(message: types.Message):
-    lang = get_user_lang(message.from_user.id)
+    user_id = message.from_user.id
+    user_current_section[user_id] = "news"
+    lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["news_section"], parse_mode=ParseMode.HTML)
 
@@ -1233,6 +1248,7 @@ async def process_feature_buttons(callback: types.CallbackQuery):
     await callback.answer()
     feature_type = callback.data.replace("feature_", "")
     user_id = callback.from_user.id
+    user_current_section[user_id] = "ai"
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     
@@ -1280,74 +1296,100 @@ async def process_ai_reply_media(callback: types.CallbackQuery):
         await callback.message.answer("⚠️ Не удалось сгенерировать ответ.")
 
 # ---------------------------------------------------------------------------
-# ОБРАБОТКА МЕДИА (ФОТО, ГОЛОСОВЫЕ, ВИДЕО)
+# ОБРАБОТКА МЕДИА (ФОТО, ГОЛОСОВЫЕ, ВИДЕО) СТРОГО СВОИМИ ФУНКЦИЯМИ МОДЕЛИ
 # ---------------------------------------------------------------------------
-
-async def process_ai_with_image(message: types.Message, photo_bytes: bytes, prompt_text: str, lang: str):
-    user_id = message.from_user.id
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    try:
-        system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        
-        model_choice = get_user_model(user_id)
-        if "gemini" in model_choice:
-            contents = [prompt_text, {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}}]
-        else:
-            contents = prompt_text + "\n[Пользователь прикрепил изображение, но текущая модель поддерживает только текст]"
-            
-        ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
-        formatted_reply = format_gemini_response_to_html(ai_reply)
-        await message.answer(formatted_reply, parse_mode=ParseMode.HTML)
-    except Exception as e:
-        logging.error(f"Ошибка фото: {e}")
-        await message.answer("⚠️ Не удалось проанализировать изображение.", reply_markup=get_back_keyboard(lang))
 
 @dp.message(F.photo)
 async def handle_photo_upload(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
+    model_choice = get_user_model(user_id)
+    
     photo = message.photo[-1]
     file_info = await bot.get_file(photo.file_id)
     downloaded_file = await bot.download_file(file_info.file_path)
     photo_bytes = downloaded_file.read()
     
     prompt_text = message.caption if message.caption else "Опиши подробно, что изображено на этой фотографии."
-    await process_ai_with_image(message, photo_bytes, prompt_text, lang)
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    
+    try:
+        system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
+        
+        # Если выбрана любая модель Gemini (и Flash, и Pro используют свои нативные функции без помощи других ИИ)
+        if "gemini" in model_choice:
+            contents = [
+                prompt_text,
+                types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg"),
+            ]
+            ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
+        elif "gpt" in model_choice:
+            ai_reply = "⚠️ Модель ChatGPT в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений OpenAI."
+        elif "claude" in model_choice:
+            ai_reply = "⚠️ Модель Claude в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений Anthropic."
+        elif "grok" in model_choice:
+            ai_reply = "⚠️ Модель Grok в данный момент настроена только для текста. Скоро здесь заработает нативный анализ изображений xAI."
+        else:
+            ai_reply = "⚠️ Выбранная модель не поддерживает обработку изображений."
+
+        formatted_reply = format_gemini_response_to_html(ai_reply)
+        await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
+    except Exception as e:
+        logging.error(f"Ошибка фото: {e}")
+        await message.answer("⚠️ Не удалось проанализировать изображение.", reply_markup=get_back_keyboard(lang))
 
 @dp.message(F.voice)
 async def handle_voice_message(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    model_choice = get_user_model(user_id)
     
+    # Если пользователь находится по умолчанию в Свободном чате (или явно выбрал чат с ИИ)
+    current_section = user_current_section.get(user_id, "ai")
+    
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     file_info = await bot.get_file(message.voice.file_id)
     downloaded_file = await bot.download_file(file_info.file_path)
     audio_bytes = downloaded_file.read()
     
-    prompt = (
-        "Распознай это голосовое сообщение.\n"
-        "1. Напиши оригинальный текст.\n"
-        "2. Укажи точный перевод на язык пользователя.\n"
-        "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод без своих комментариев."
-    )
-    
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        model_choice = get_user_model(user_id)
         if "gemini" in model_choice:
-            contents = [prompt, {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}]
+            if current_section == "voice":
+                # Режим «Голосовые и Текст»: расшифровываем и переводим
+                prompt = (
+                    "Распознай это голосовое сообщение.\n"
+                    "1. Напиши оригинальный текст.\n"
+                    "2. Укажи точный перевод на язык пользователя.\n"
+                    "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод без своих комментариев."
+                )
+                contents = [prompt, types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")]
+                raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
+                last_transcriptions[user_id] = raw_text
+                formatted_reply = format_gemini_response_to_html(raw_text)
+                
+                media_reply_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🤖 Ответить с помощью AI", callback_data="ai_reply_media")]
+                ])
+                await message.answer(formatted_reply, reply_markup=media_reply_kb, parse_mode=ParseMode.HTML)
+                return
+            else:
+                # Режим «Свободный чат с ИИ» (по умолчанию): отвечаем на вопрос в голосовом сообщении
+                prompt = "Распознай это голосовое сообщение и ответь на поставленный в нем вопрос."
+                contents = [prompt, types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")]
+                
+                if user_id not in user_chat_history:
+                    user_chat_history[user_id] = []
+                
+                ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
+                user_chat_history[user_id].append({"role": "model", "parts": [{"text": ai_reply}]})
+                
+                formatted_reply = format_gemini_response_to_html(ai_reply)
+                await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
+                return
         else:
-            contents = "Голосовое сообщение (транскрипция доступна при использовании моделей Gemini)."
-
-        raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
-        last_transcriptions[user_id] = raw_text
-        formatted_reply = format_gemini_response_to_html(raw_text)
-        
-        media_reply_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🤖 Ответить с помощью AI", callback_data="ai_reply_media")]
-        ])
-        await message.answer(formatted_reply, reply_markup=media_reply_kb, parse_mode=ParseMode.HTML)
+            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку аудио.")
     except Exception as e:
         logging.error(f"Ошибка аудио: {e}")
         await message.answer("⚠️ Не удалось распознать голосовое сообщение.", reply_markup=get_back_keyboard(lang))
@@ -1356,41 +1398,49 @@ async def handle_voice_message(message: types.Message):
 async def handle_video_message(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    model_choice = get_user_model(user_id)
+    current_section = user_current_section.get(user_id, "ai")
     
     video_file = message.video_note if message.video_note else message.video
     if video_file.file_size > 20 * 1024 * 1024:
         await message.answer("⚠️ Видео слишком большое (максимум 20 МБ).")
         return
 
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     file_info = await bot.get_file(video_file.file_id)
     downloaded_file = await bot.download_file(file_info.file_path)
     video_bytes = downloaded_file.read()
     
-    prompt = (
-        "Распознай это видеосообщение.\n"
-        "1. Напиши оригинальный текст.\n"
-        "2. Укажи точный перевод на язык пользователя.\n"
-        "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод."
-    )
-    
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        model_choice = get_user_model(user_id)
         if "gemini" in model_choice:
-            contents = [prompt, {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}]
+            if current_section == "voice":
+                prompt = (
+                    "Распознай это видеосообщение.\n"
+                    "1. Напиши оригинальный текст.\n"
+                    "2. Укажи точный перевод на язык пользователя.\n"
+                    "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод."
+                )
+                contents = [prompt, types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")]
+                raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
+                last_transcriptions[user_id] = raw_text
+                formatted_reply = format_gemini_response_to_html(raw_text)
+                
+                media_reply_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🤖 Ответить с помощью AI", callback_data="ai_reply_media")]
+                ])
+                await message.answer(formatted_reply, reply_markup=media_reply_kb, parse_mode=ParseMode.HTML)
+                return
+            else:
+                prompt = "Распознай это видеосообщение и ответь на вопрос в нем."
+                contents = [prompt, types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")]
+                ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
+                formatted_reply = format_gemini_response_to_html(ai_reply)
+                await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
+                return
         else:
-            contents = "Видеосообщение."
-
-        raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
-        last_transcriptions[user_id] = raw_text
-        formatted_reply = format_gemini_response_to_html(raw_text)
-        
-        media_reply_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🤖 Ответить с помощью AI", callback_data="ai_reply_media")]
-        ])
-        await message.answer(formatted_reply, reply_markup=media_reply_kb, parse_mode=ParseMode.HTML)
+            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку видео.")
     except Exception as e:
         logging.error(f"Ошибка видео: {e}")
         await message.answer("⚠️ Не удалось обработать видеосообщение.", reply_markup=get_back_keyboard(lang))
@@ -1455,7 +1505,7 @@ async def handle_ai_chat(message: types.Message):
 async def main():
     init_db()
     print("🤖 База данных SQLite инициализирована!")
-    print("🤖 Nodin AI успешно запущен с поддержкой мультимодельности (Gemini, OpenAI, Claude, Grok)!")
+    print("🤖 Nodin AI успешно запущен с нативной поддержкой моделей и разведением логики аудио-чатов!")
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
