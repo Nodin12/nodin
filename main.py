@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
@@ -44,13 +45,43 @@ if not GEMINI_API_KEY:
 admin_id_env = os.getenv("ADMIN_IDS")
 ADMIN_IDS = {int(admin_id_env)} if admin_id_env else set()
 
-AI_MODEL_NAME = "gemini-2.5-flash"
+AI_MODEL_NAME = "gemini-3.8-flash"
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# ---------------------------------------------------------------------------
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: АВТОПОВТОР ПРИ 503 ОШИБКЕ (RETRY)
+# ---------------------------------------------------------------------------
+
+def generate_with_retry(client, model_name, contents, config=None, max_retries=4, initial_delay=2):
+    """
+    Отправляет запрос к Gemini с автоматическим повтором при ошибке 503 (перегрузка сервера).
+    """
+    delay = initial_delay
+    for attempt in range(max_retries):
+        try:
+            kwargs = {
+                "model": model_name,
+                "contents": contents
+            }
+            if config:
+                kwargs["config"] = config
+                
+            response = client.models.generate_content(**kwargs)
+            return response
+        except Exception as e:
+            error_str = str(e)
+            # Если это ошибка 503 или UNAVAILABLE (высокий спрос на модель), пробуем еще раз
+            if "503" in error_str or "UNAVAILABLE" in error_str:
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                    delay *= 2  # Увеличиваем паузу перед следующей попыткой (2с -> 4с -> 8с)
+                    continue
+            raise e
 
 # ---------------------------------------------------------------------------
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
@@ -519,7 +550,7 @@ LEXICON = {
         "hint_explain_topic": (
             "<b>📚 Mod: Karmaşık Konuları ve Terimleri Açıklama</b>\n\n"
             "Karmaşık bilimsel kavramları veya akademik terimleri artık birkaç dakika içinde anlayabilirsiniz.\n\n"
-            "• <b>Nasıl kullanılır:</b> Herhangi bir zor terimi yazın; bot bunu canlı örneklerle basit ve anlaşılır bir şekilde açıklasın."
+            "• <b>Nasıl kullanılır:</b> Herhangi bir zor terim yazın; bot bunu canlı örneklerle basit ve anlaşılır bir şekilde açıklasın."
         ),
         "hint_lang_help": (
             "<b>💻 Mod: Programlama Dilleri ve Algoritmalar</b>\n\n"
@@ -1051,8 +1082,9 @@ async def process_ai_reply_media(callback: types.CallbackQuery):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = gemini_client.models.generate_content(
-            model=AI_MODEL_NAME,
+        response = generate_with_retry(
+            client=gemini_client,
+            model_name=AI_MODEL_NAME,
             contents=[prompt],
             config={
                 "system_instruction": system_instruction,
@@ -1073,8 +1105,9 @@ async def process_ai_with_image(message: types.Message, photo_bytes: bytes, prom
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = gemini_client.models.generate_content(
-            model=AI_MODEL_NAME,
+        response = generate_with_retry(
+            client=gemini_client,
+            model_name=AI_MODEL_NAME,
             contents=[prompt_text, {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}}],
             config={
                 "system_instruction": system_instruction,
@@ -1119,8 +1152,9 @@ async def handle_voice_message(message: types.Message):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = gemini_client.models.generate_content(
-            model=AI_MODEL_NAME,
+        response = generate_with_retry(
+            client=gemini_client,
+            model_name=AI_MODEL_NAME,
             contents=[prompt, {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}],
             config={
                 "system_instruction": system_instruction,
@@ -1163,8 +1197,9 @@ async def handle_video_message(message: types.Message):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = gemini_client.models.generate_content(
-            model=AI_MODEL_NAME,
+        response = generate_with_retry(
+            client=gemini_client,
+            model_name=AI_MODEL_NAME,
             contents=[prompt, {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}],
             config={
                 "system_instruction": system_instruction,
@@ -1226,9 +1261,10 @@ async def handle_ai_chat(message: types.Message):
         
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        # Запрос к Gemini
-        response = gemini_client.models.generate_content(
-            model=AI_MODEL_NAME,
+        # Запрос к Gemini с защитой от 503 ошибок
+        response = generate_with_retry(
+            client=gemini_client,
+            model_name=AI_MODEL_NAME,
             contents=user_chat_history[user_id],
             config={
                 "system_instruction": system_instruction,
@@ -1245,7 +1281,7 @@ async def handle_ai_chat(message: types.Message):
         
     except Exception as e:
         logging.error(f"Ошибка Gemini API: {e}")
-        await message.answer("⚠️ Извините, произошла ошибка при обращении к ИИ. Попробуйте еще раз.", reply_markup=get_back_keyboard(lang))
+        await message.answer("⚠️ Извините, сервера Google временно перегружены. Попробуйте отправить сообщение еще раз.", reply_markup=get_back_keyboard(lang))
         
     finally:
         # Обязательно снимаем блокировку спама по завершении
