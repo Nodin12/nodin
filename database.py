@@ -116,3 +116,12 @@ def set_user_model(user_id: int, model: str):
     """, (model, user_id))
     conn.commit()
     conn.close()
+
+def get_all_users_ids() -> list:
+    """Возвращает список всех ID пользователей из базы данных"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users")
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users

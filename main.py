@@ -39,6 +39,7 @@ from database import (
     is_user_vip,
     get_user_model,
     set_user_model,
+    get_all_users_ids,
 )
 
 load_dotenv()
@@ -77,6 +78,7 @@ xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if (Ope
 # ---------------------------------------------------------------------------
 
 user_current_section = {} # {user_id: "ai" или "voice" или другой раздел}
+admin_broadcast_state = {} # {admin_id: True/False}
 
 # ---------------------------------------------------------------------------
 # УНИВЕРСАЛЬНЫЙ ДИСПЕТЧЕР ЗАПРОСОВ С ПОДДЕРЖКОЙ ВСЕХ ИИ И РЕТРАЕВ
@@ -1021,7 +1023,8 @@ async def admin_panel_handler(message: types.Message):
     
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Подробная статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="⭐ Управление VIP пользователями", callback_data="admin_vip_menu")]
+        [InlineKeyboardButton(text="⭐ Управление VIP пользователями", callback_data="admin_vip_menu")],
+        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast_start")]
     ])
     
     admin_text = (
@@ -1080,6 +1083,30 @@ async def process_admin_vip_menu(callback: types.CallbackQuery):
         "💡 <i>Вы можете скопировать заготовку команды и заменить ID на нужный!</i>"
     )
     await callback.message.answer(vip_instructions, parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data == "admin_broadcast_start")
+async def process_broadcast_start(callback: types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⚠️ У вас нет прав администратора.", show_alert=True)
+        return
+    
+    await callback.answer()
+    admin_broadcast_state[callback.from_user.id] = True
+    
+    await callback.message.answer(
+        "📢 <b>Режим рассылки активирован</b>\n\n"
+        "Отправьте следующим сообщением текст, который хотите разослать всем пользователям бота.\n"
+        "<i>Поддерживается HTML-форматирование и ссылки.</i>\n\n"
+        "❌ Чтобы отменить рассылку, просто отправьте команду /cancel",
+        parse_mode=ParseMode.HTML
+    )
+
+@dp.message(Command("cancel"))
+async def cancel_broadcast(message: types.Message):
+    user_id = message.from_user.id
+    if user_id in admin_broadcast_state:
+        del admin_broadcast_state[user_id]
+        await message.answer("❌ Рассылка отменена.", reply_markup=get_main_keyboard(user_id, get_user_lang(user_id)))
 
 @dp.message(Command("addvip"))
 async def cmd_add_vip(message: types.Message):
@@ -1445,13 +1472,39 @@ async def handle_video_message(message: types.Message):
         await message.answer("⚠️ Не удалось обработать видеосообщение.", reply_markup=get_back_keyboard(lang))
 
 # ---------------------------------------------------------------------------
-# ГЛАВНЫЙ ЧАТ (ОБРАБОТКА ТЕКСТА)
+# ГЛАВНЫЙ ЧАТ (ОБРАБОТКА ТЕКСТА И РАССЫЛКА)
 # ---------------------------------------------------------------------------
 
 @dp.message(F.text)
 async def handle_ai_chat(message: types.Message):
     user_id = message.from_user.id
     
+    # Обработка рассылки для администратора
+    if user_id in ADMIN_IDS and admin_broadcast_state.get(user_id):
+        del admin_broadcast_state[user_id]
+        
+        users = get_all_users_ids()
+        sent_count = 0
+        blocked_count = 0
+        
+        status_msg = await message.answer("⏳ <b>Рассылка началась...</b> Пожалуйста, подождите.", parse_mode=ParseMode.HTML)
+        
+        for uid in users:
+            try:
+                await bot.send_message(chat_id=uid, text=message.text, parse_mode=ParseMode.HTML)
+                sent_count += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                blocked_count += 1
+                
+        await status_msg.edit_text(
+            f"✅ <b>Рассылка успешно завершена!</b>\n\n"
+            f"📤 Доставлено: <b>{sent_count}</b>\n"
+            f"🚫 Заблокировали бота: <b>{blocked_count}</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     if user_id in active_processing:
         await message.answer("⏳ Пожалуйста, подождите, я еще отвечаю на ваше предыдущее сообщение...")
         return
