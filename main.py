@@ -110,7 +110,6 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
         if not openai_client:
             return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."
         
-        # Преобразуем формат contents в openai messages
         messages = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
@@ -122,7 +121,6 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
                 elif isinstance(item, str):
                     messages.append({"role": "user", "content": item})
                 elif isinstance(item, dict) and "role" in item:
-                    # Поддержка структуры истории чата
                     role = "assistant" if item["role"] == "model" else item["role"]
                     text_parts = "".join([p.get("text", "") for p in item.get("parts", [])])
                     messages.append({"role": role, "content": text_parts})
@@ -142,6 +140,9 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
             return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."
         
         messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+            
         if isinstance(contents, list):
             for item in contents:
                 if isinstance(item, dict) and "role" in item:
@@ -189,48 +190,52 @@ last_transcriptions = {}  # {user_id: "Текст аудио/видео"}
 active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация
 
 # ---------------------------------------------------------------------------
-# СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ
+# СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ (ЛАКОНИЧНЫЙ И ТОЧНЫЙ ФОРМАТ)
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPTS = {
     "ru": (
-        "Ты — Nodin AI, дружелюбный и умный ИИ-ассистент в Telegram. "
-        "Правила: 1) НИКОГДА не используй звездочки '*' для разделения строк или списков. "
-        "2) ВСЕГДА используй дефисы и маркеры '• ' или эмодзи для списков. "
-        "3) Пиши развернуто, но лаконично (оптимально 3–4 содержательных абзаца), "
-        "полностью раскрывая суть вопроса без лишней воды, и всегда доводи мысль до логического конца."
+        "Ты — Nodin AI, умный, дружелюбный и лаконичный цифровой помощник в Telegram. "
+        "Правила общения: 1) Отвечай кратко, емко и по существу. Не пиши длинных вступлений и не перечисляй свои возможности без явной просьбы. "
+        "2) На простые приветствия (например, 'Привет', 'Хай', 'Как дела?') отвечай легко и коротко (1-2 предложения), сгенерировав естественный ответ живого собеседника. "
+        "3) Соблюдай баланс: давай развернутые и подробные ответы ТОЛЬКО тогда, когда пользователь задает сложный вопрос, просит написать код, статью или разобрать тему подробнее. "
+        "4) НИКОГДА не используй звездочки '*' для разделения строк или списков. ВСЕГДА используй дефисы и маркеры '• ' или эмодзи для списков. "
+        "5) Используй аккуратное HTML-форматирование (жирный текст <b>...</b>)."
     ),
     "en": (
-        "You are Nodin AI, a helpful and smart assistant in Telegram. "
-        "Rules: 1) NEVER use asterisks '*' as dividers. "
-        "2) ALWAYS use bullet points '• ' or emojis for lists. "
-        "3) Write detailed yet concise answers (optimally 3-4 meaningful paragraphs), "
-        "fully covering the core of the question without fluff, and always complete your thoughts."
+        "You are Nodin AI, a smart, friendly, and concise digital assistant in Telegram. "
+        "Rules: 1) Answer briefly, concisely, and to the point. Do not write long introductions or list your capabilities without an explicit request. "
+        "2) For simple greetings (e.g., 'Hello', 'Hi', 'How are you?'), reply naturally and briefly (1-2 sentences). "
+        "3) Give detailed answers ONLY when the user asks a complex question, requests code, or asks to explain a topic in depth. "
+        "4) NEVER use asterisks '*' as dividers. ALWAYS use bullet points '• ' or emojis. "
+        "5) Use clean HTML formatting."
     ),
     "tr": (
-        "Sen Nodin AI'ın, Telegram'da yardımsever ve zeki bir asistansın. "
-        "Kurallar: 1) Asla bölücü olarak yıldız '*' kullanma. "
-        "2) Listeler için her zaman '• ' simgesini veya emojileri kullan. "
-        "3) Detaylı ama öz yanıtlar ver (ideal olarak 3-4 anlamlı paragraf), "
-        "gereksiz uzatmadan konunun özünü tamamen açıkla ve cümlelerini mutlaka tamamla."
+        "Sen Nodin AI'ın, Telegram'da akıllı, arkadaş canlısı ve özlü bir dijital asistansın. "
+        "Kurallar: 1) Kısa, öz ve konuya odaklı yanıtlar ver. Uzun girişler yapma. "
+        "2) Basit selamlamalara (örn. 'Merhaba', 'Nasılsın?') doğal ve kısa (1-2 cümle) yanıt ver. "
+        "3) Detaylı yanıtları YALNIZCA kullanıcı karmaşık bir soru sorduğunda veya kod istediğinde ver. "
+        "4) Asla yıldız '*' kullanma, her zaman '• ' simgesini veya emojileri kullan."
     ),
     "es": (
-        "Eres Nodin AI, un asistente inteligente en Telegram. "
-        "Reglas: 1) NUNCA uses asteriscos '*' como divisores. "
-        "2) Usa siempre '• ' o emojis para las listas. "
-        "3) Escribe respuestas detalladas pero concisas (de 3 a 4 párrafos significativos), "
-        "cubriendo el tema de fondo sin rodeos y terminando siempre tus ideas."
+        "Eres Nodin AI, un asistente digital inteligente, amigable y conciso en Telegram. "
+        "Reglas: 1) Responde de manera breve y al grano. No escribas introducciones largas. "
+        "2) A los saludos simples, responde de forma natural y corta (1-2 frases). "
+        "3) Da respuestas detalladas SOLO cuando se solicite algo complejo o código. "
+        "4) NUNCA uses asteriscos '*' como divisores, usa '• ' o emojis."
     ),
     "zh": (
-        "你是 Nodin AI，Telegram 上的智能助手。"
-        "规则：1) 绝不要使用星号 '*' 作为分隔符。2) 列表请始终使用 '• ' 符号或表情符号。"
-        "3) 回答要详略得当（通常为 3-4 个有实质内容的段落），切中要害而不冗长，务必把话说完整。"
+        "你是 Nodin AI，Telegram 上的智能、友好且简练的数字助手。"
+        "规则：1) 简明扼要地回答，切中要害，不要写冗长的开场白。2) 对于简单的问候（如“你好”），自然且简短地回复（1-2句话）。"
+        "3) 仅在用户提出复杂问题、要求编写代码或深入探讨时才给出详细解答。"
+        "4) 绝不要使用星号 '*' 作为分隔符，请始终使用 '• ' 符号。"
     ),
     "ar": (
-        "أنت Nodin AI، مساعد ذكي في تيليجرام. "
-        "القواعد: 1) لا تستخدم أبدًا النجوم '*' كفاصل. 2) استخدم دائمًا النقاط '• ' أو الرموز التعبيرية للقوائم."
-        "3) اكتب إجابات تفصيلية ولكن موجزة (3-4 فقرات غنية بالمعلومات بنجاح)، "
-        "بحيث تغطي جوهر السؤال تمامًا بدون حشو، وأكمل أفكارك دائماً حتى النهاية."
+        "أنت Nodin AI، مساعد رقمي ذكي وودود وموجز في تيليجرام. "
+        "القواعد: 1) أجب باختصار وفي الصميم دون مقدمات طويلة. "
+        "2) للتحيات البسيطة، رد بشكل طبيعي وقصير (جملة أو جملتين). "
+        "3) قدم إجابات تفصيلية فقط عندما يطلب المستخدم ذلك أو يسأل عن كود برمجي. "
+        "4) لا تستخدم أبدًا النجوم '*' كفاصل، واستخدم النقاط '• ' دائماً."
     )
 }
 
@@ -327,42 +332,42 @@ LEXICON = {
             "<b>✍️ Режим: Создание поста для соцсетей</b>\n\n"
             "Этот инструмент поможет разработать готовый, структурированный и увлекающий пост "
             "для твоих социальных сетей.\n\n"
-            "• <b>Что нужно сделать:</b> просто отправьте в чат тему, ключевые мысли или готовый набросок текста, "
+            "• <b>Что нужно сделать:</b> просто отправь в чат тему, ключевые мысли или готовый набросок текста, "
             "и ИИ красиво оформит его, добавит абзацы, структуру и нужные эмодзи."
         ),
         "hint_smm_ideas": (
             "<b>💡 Режим: Идеи для контента и блога</b>\n\n"
-            "Испытываете нехватку тем для публикаций? Этот режим сгенерирует для вас массу "
+            "Испытываешь нехватку тем для публикаций? Этот режим сгенерирует для тебя массу "
             "актуальных и вовлекающих идей.\n\n"
-            "• <b>Что нужно сделать:</b> опишите свою нишу, проект или продукт, и бот выдаст "
+            "• <b>Что нужно сделать:</b> опиши свою нишу, проект или продукт, и бот выдаст "
             "готовые идеи для постов, сторис или видеороликов."
         ),
         "hint_smm_ad": (
             "<b>🎯 Режим: Продающий рекламный текст</b>\n\n"
-            "Создавайте цепляющие рекламные офферы, которые привлекают внимание аудитории "
+            "Создавай цепляющие рекламные офферы, которые привлекают внимание аудитории "
             "и побуждают к действию.\n\n"
-            "• <b>Что нужно сделать:</b> расскажите о вашем продукте, услуге или акции, "
+            "• <b>Что нужно сделать:</b> расскажи о своем продукте, услуге или акции, "
             "и ИИ составит грамотный продающий текст с выгодой для клиента."
         ),
         "hint_code_debug": (
             "<b>🧩 Режим: Поиск и исправление ошибок в коде</b>\n\n"
-            "Ваш личный ассистент по отладке программ. Помогает быстро находить опечатки, логические "
+            "Твой личный ассистент по отладке программ. Помогает быстро находить опечатки, логические "
             "ошибки и баги в коде.\n\n"
-            "• <b>Что нужно сделать:</b> отправьте в чат проблемный фрагмент кода и опишите суть ошибки, "
+            "• <b>Что нужно сделать:</b> отправь в чат проблемный фрагмент кода и опиши суть ошибки, "
             "а бот покажет, где баг, объяснит причину и выдаст исправленный вариант."
         ),
         "hint_explain_topic": (
             "<b>📚 Режим: Объяснение сложных тем и терминов</b>\n\n"
             "Сложные научные концепции, термины из учебы или программирования теперь можно "
             "понять за пару минут.\n\n"
-            "• <b>Что нужно сделать:</b> напишите термин или сложную тему, и бот разложит всё "
+            "• <b>Что нужно сделать:</b> напиши термин или сложную тему, и бот разложит всё "
             "по полочкам простыми, понятными словами с живыми примерами."
         ),
         "hint_lang_help": (
             "<b>💻 Режим: Помощь по языкам программирования и алгоритмам</b>\n\n"
             "Нужна подсказка по синтаксису Python, JavaScript, C++ или логике работы алгоритмов? "
             "Этот режим создан специально для этого.\n\n"
-            "• <b>Что нужно сделать:</b> задайте любой технический вопрос или опишите задачу, "
+            "• <b>Что нужно сделать:</b> задай любой технический вопрос или опиши задачу, "
             "и бот подробно ответит, приведя рабочий пример кода."
         )
     },
@@ -900,7 +905,6 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
-    """Инлайн клавиатура для выбора ИИ модели с отметкой текущей"""
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
         ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
@@ -965,7 +969,6 @@ async def back_to_main(message: types.Message):
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["welcome"], reply_markup=get_main_keyboard(user_id, lang), parse_mode=ParseMode.HTML)
 
-# Обработка кнопки выбора модели из меню
 @dp.message(F.text.in_({v["btn_models"] for v in LEXICON.values()}))
 async def models_menu_handler(message: types.Message):
     user_id = message.from_user.id
@@ -1131,7 +1134,6 @@ async def ai_chat_section(message: types.Message):
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     
-    # Кнопка быстрой смены модели прямо в свободном чате
     chat_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚙️ Сменить модель ИИ", callback_data="quick_change_model")]
     ])
@@ -1277,7 +1279,6 @@ async def process_ai_with_image(message: types.Message, photo_bytes: bytes, prom
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        # Для Gemini поддерживаем мультимодальность с картинкой напрямую
         model_choice = get_user_model(user_id)
         if "gemini" in model_choice:
             contents = [prompt_text, {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}}]
@@ -1423,7 +1424,6 @@ async def handle_ai_chat(message: types.Message):
         
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        # Универсальный вызов выбранной модели
         ai_reply = generate_smart_ai_response(user_id, user_chat_history[user_id], system_instruction)
         
         user_chat_history[user_id].append({"role": "model", "parts": [{"text": ai_reply}]})
