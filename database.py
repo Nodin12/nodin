@@ -12,9 +12,17 @@ def init_db():
             username TEXT,
             language TEXT DEFAULT 'ru',
             is_vip INTEGER DEFAULT 0,
+            model TEXT DEFAULT 'gemini-3.8-flash',
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    
+    # Автоматическая миграция на случай, если таблица уже существовала без колонки model
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN model TEXT DEFAULT 'gemini-3.8-flash'")
+    except sqlite3.OperationalError:
+        pass # Колонка уже существует
+        
     conn.commit()
     conn.close()
 
@@ -91,3 +99,20 @@ def is_user_vip(user_id: int) -> bool:
     row = cursor.fetchone()
     conn.close()
     return bool(row and row[0] == 1)
+
+def get_user_model(user_id: int) -> str:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT model FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if (row and row[0]) else "gemini-3.8-flash"
+
+def set_user_model(user_id: int, model: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE users SET model = ? WHERE user_id = ?
+    """, (model, user_id))
+    conn.commit()
+    conn.close()

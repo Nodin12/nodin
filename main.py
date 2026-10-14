@@ -16,6 +16,17 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from google import genai
 
+# Импорты для других провайдеров (будут работать, если установлены библиотеки и ключи)
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
+
 from database import (
     init_db,
     get_user_lang,
@@ -26,6 +37,8 @@ from database import (
     get_last_users,
     set_vip_status,
     is_user_vip,
+    get_user_model,
+    set_user_model,
 )
 
 load_dotenv()
@@ -36,6 +49,9 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+XAI_API_KEY = os.getenv("XAI_API_KEY")
 
 if not BOT_TOKEN:
     raise ValueError("⚠️ Ошибка: BOT_TOKEN не найден в переменных окружения (.env)!")
@@ -45,43 +61,124 @@ if not GEMINI_API_KEY:
 admin_id_env = os.getenv("ADMIN_IDS")
 ADMIN_IDS = {int(admin_id_env)} if admin_id_env else set()
 
-AI_MODEL_NAME = "gemini-3.8-flash"
-
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# Инициализация клиентов ИИ
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if (OpenAI and OPENAI_API_KEY) else None
+anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if (anthropic and ANTHROPIC_API_KEY) else None
+xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if (OpenAI and XAI_API_KEY) else None
 
 # ---------------------------------------------------------------------------
-# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: АВТОПОВТОР ПРИ 503 ОШИБКЕ (RETRY)
+# УНИВЕРСАЛЬНЫЙ ДИСПЕТЧЕР ЗАПРОСОВ С ПОДДЕРЖКОЙ ВСЕХ ИИ И РЕТРАЕВ
 # ---------------------------------------------------------------------------
 
-def generate_with_retry(client, model_name, contents, config=None, max_retries=4, initial_delay=2):
+def generate_smart_ai_response(user_id: int, contents, system_instruction: str = "") -> str:
     """
-    Отправляет запрос к Gemini с автоматическим повтором при ошибке 503 (перегрузка сервера).
+    Определяет выбранную пользователем модель и отправляет запрос в соответствующий API.
+    Содержит защиту от 503 ошибок для Gemini и заглушки для отсутствующих ключей.
     """
-    delay = initial_delay
-    for attempt in range(max_retries):
-        try:
-            kwargs = {
-                "model": model_name,
-                "contents": contents
-            }
-            if config:
-                kwargs["config"] = config
+    model_choice = get_user_model(user_id) # например: "gemini-3.8-flash", "gpt-4o", "claude-3-5-sonnet", "grok-2"
+    
+    # 1. СЕМЕЙСТВО GEMINI (Google)
+    if "gemini" in model_choice:
+        delay = 2
+        for attempt in range(4):
+            try:
+                config_dict = {"temperature": 0.7}
+                if system_instruction:
+                    config_dict["system_instruction"] = system_instruction
                 
-            response = client.models.generate_content(**kwargs)
-            return response
-        except Exception as e:
-            error_str = str(e)
-            # Если это ошибка 503 или UNAVAILABLE (высокий спрос на модель), пробуем еще раз
-            if "503" in error_str or "UNAVAILABLE" in error_str:
-                if attempt < max_retries - 1:
+                response = gemini_client.models.generate_content(
+                    model=model_choice,
+                    contents=contents,
+                    config=config_dict
+                )
+                return response.text
+            except Exception as e:
+                if ("503" in str(e) or "UNAVAILABLE" in str(e)) and attempt < 3:
                     time.sleep(delay)
-                    delay *= 2  # Увеличиваем паузу перед следующей попыткой (2с -> 4с -> 8с)
+                    delay *= 2
                     continue
-            raise e
+                raise e
+
+    # 2. СЕМЕЙСТВО OPENAI (ChatGPT)
+    elif "gpt" in model_choice:
+        if not openai_client:
+            return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."
+        
+        # Преобразуем формат contents в openai messages
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+            
+        if isinstance(contents, list):
+            for item in contents:
+                if isinstance(item, dict) and "text" in item:
+                    messages.append({"role": "user", "content": item["text"]})
+                elif isinstance(item, str):
+                    messages.append({"role": "user", "content": item})
+                elif isinstance(item, dict) and "role" in item:
+                    # Поддержка структуры истории чата
+                    role = "assistant" if item["role"] == "model" else item["role"]
+                    text_parts = "".join([p.get("text", "") for p in item.get("parts", [])])
+                    messages.append({"role": role, "content": text_parts})
+        else:
+            messages.append({"role": "user", "content": str(contents)})
+
+        response = openai_client.chat.completions.create(
+            model=model_choice,
+            messages=messages,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+
+    # 3. СЕМЕЙСТВО ANTHROPIC (Claude)
+    elif "claude" in model_choice:
+        if not anthropic_client:
+            return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."
+        
+        messages = []
+        if isinstance(contents, list):
+            for item in contents:
+                if isinstance(item, dict) and "role" in item:
+                    role = "assistant" if item["role"] == "model" else "user"
+                    text_parts = "".join([p.get("text", "") for p in item.get("parts", [])])
+                    messages.append({"role": role, "content": text_parts})
+                elif isinstance(item, str):
+                    messages.append({"role": "user", "content": item})
+        else:
+            messages.append({"role": "user", "content": str(contents)})
+
+        response = anthropic_client.messages.create(
+            model=model_choice,
+            max_tokens=2048,
+            system=system_instruction,
+            messages=messages
+        )
+        return response.content[0].text
+
+    # 4. СЕМЕЙСТВО XAI (Grok)
+    elif "grok" in model_choice:
+        if not xai_client:
+            return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."
+        
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": str(contents)})
+
+        response = xai_client.chat.completions.create(
+            model=model_choice,
+            messages=messages,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+
+    return "⚠️ Неизвестная модель ИИ."
 
 # ---------------------------------------------------------------------------
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
@@ -150,7 +247,7 @@ def format_gemini_response_to_html(text: str) -> str:
     return formatted.strip()
 
 # ---------------------------------------------------------------------------
-# ПОЛНЫЙ СЛОВАРЬ ЛЕКСИКОНА ДЛЯ ВСЕХ 6 ЯЗЫКОВ (ПОЛНЫЙ ОБЪЕМ)
+# ПОЛНЫЙ СЛОВАРЬ ЛЕКСИКОНА ДЛЯ ВСЕХ 6 ЯЗЫКОВ
 # ---------------------------------------------------------------------------
 
 LEXICON = {
@@ -164,6 +261,7 @@ LEXICON = {
         "btn_admin": "⚡ Админ-панель",
         "btn_reset": "🔄 Сбросить чат",
         "btn_back": "🔙 Главное меню",
+        "btn_models": "⚙️ Выбор ИИ модели",
         "welcome": "Язык успешно установлен: <b>Русский</b> 🇷🇺\n\nМожете сразу писать мне любые вопросы в чат! Или выберите раздел в меню ниже:",
         "reset_msg": "🔄 <b>История и память ИИ сброшены!</b>\n\nВыберите язык заново:",
         "ai_section": (
@@ -207,8 +305,9 @@ LEXICON = {
             "<b>👤 Личный кабинет</b>\n\n"
             "• <b>Имя:</b> {name}\n"
             "• <b>Твой ID:</b> <code>{user_id}</code>\n"
-            "• <b>Статус:</b> {status}\n\n"
-            "Выбери подписку для расширенного доступа:"
+            "• <b>Статус:</b> {status}\n"
+            "• <b>Текущая ИИ модель:</b> <code>{model}</code>\n\n"
+            "Выбери подписку или измени модель ИИ:"
         ),
         "news_section": (
             "<b>📰 Новости и Поддержка Nodin AI</b>\n\n"
@@ -277,6 +376,7 @@ LEXICON = {
         "btn_admin": "⚡ Admin Panel",
         "btn_reset": "🔄 Reset Chat",
         "btn_back": "🔙 Main Menu",
+        "btn_models": "⚙️ Select AI Model",
         "welcome": "Language set to: <b>English</b> 🇬🇧\n\nYou can chat right away or choose a section below:",
         "reset_msg": "🔄 <b>AI history and memory reset!</b>\n\nPlease select your language:",
         "ai_section": (
@@ -317,8 +417,9 @@ LEXICON = {
             "<b>👤 Personal Profile</b>\n\n"
             "• <b>Name:</b> {name}\n"
             "• <b>Your ID:</b> <code>{user_id}</code>\n"
-            "• <b>Status:</b> {status}\n\n"
-            "Choose a subscription plan below:"
+            "• <b>Status:</b> {status}\n"
+            "• <b>Active AI Model:</b> <code>{model}</code>\n\n"
+            "Choose a subscription plan or change your AI model:"
         ),
         "news_section": (
             "<b>📰 News & Support Nodin AI</b>\n\n"
@@ -375,6 +476,7 @@ LEXICON = {
         "btn_admin": "⚡ Panel de Control",
         "btn_reset": "🔄 Reiniciar Chat",
         "btn_back": "🔙 Menú Principal",
+        "btn_models": "⚙️ Elegir Modelo IA",
         "welcome": "Idioma configurado: <b>Español</b> 🇪🇸\n\n¡Escribe directamente o elige una sección abajo!",
         "reset_msg": "🔄 <b>¡Memoria e historial reiniciados!</b>\n\nSelecciona tu idioma:",
         "ai_section": (
@@ -415,8 +517,9 @@ LEXICON = {
             "<b>👤 Perfil Personal</b>\n\n"
             "• <b>Nombre:</b> {name}\n"
             "• <b>Tu ID:</b> <code>{user_id}</code>\n"
-            "• <b>Estado:</b> {status}\n\n"
-            "Selecciona un plan de suscripción:"
+            "• <b>Estado:</b> {status}\n"
+            "• <b>Modelo IA activo:</b> <code>{model}</code>\n\n"
+            "Selecciona un plan o cambia tu modelo de IA:"
         ),
         "news_section": (
             "<b>📰 Noticias y Soporte Nodin AI</b>\n\n"
@@ -472,6 +575,7 @@ LEXICON = {
         "btn_admin": "⚡ Yönetici Paneli",
         "btn_reset": "🔄 Sohbeti Sıfırla",
         "btn_back": "🔙 Ana Menü",
+        "btn_models": "⚙️ AI Modeli Seç",
         "welcome": "Dil ayarlandı: <b>Türkçe</b> 🇹🇷\n\nDoğrudan mesaj yazabilir veya menüyü kullanabilirsiniz:",
         "reset_msg": "🔄 <b>Sohbet geçmişi sıfırlandı!</b>\n\nDil seçin:",
         "ai_section": (
@@ -511,8 +615,9 @@ LEXICON = {
             "<b>👤 Profil</b>\n\n"
             "• <b>İsim:</b> {name}\n"
             "• <b>ID:</b> <code>{user_id}</code>\n"
-            "• <b>Durum:</b> {status}\n\n"
-            "Aşağıdan bir abonelik seçin:"
+            "• <b>Durum:</b> {status}\n"
+            "• <b>Aktif AI Modeli:</b> <code>{model}</code>\n\n"
+            "Abonelik seçin veya AI modelini değiştirin:"
         ),
         "news_section": (
             "<b>📰 Haberler ve Destek Nodin AI</b>\n\n"
@@ -568,6 +673,7 @@ LEXICON = {
         "btn_admin": "⚡ 管理员面板",
         "btn_reset": "🔄 重置对话",
         "btn_back": "🔙 返回主菜单",
+        "btn_models": "⚙️ 选择 AI 模型",
         "welcome": "语言已设置: <b>中文</b> 🇨🇳\n\n您可以直接发送消息，或选择下方菜单：",
         "reset_msg": "🔄 <b>对话已重置！</b>\n\n请重新选择语言:",
         "ai_section": (
@@ -605,8 +711,9 @@ LEXICON = {
             "<b>👤 个人中心</b>\n\n"
             "• <b>名字:</b> {name}\n"
             "• <b>ID:</b> <code>{user_id}</code>\n"
-            "• <b>状态:</b> {status}\n\n"
-            "请选择下方的订阅套餐："
+            "• <b>状态:</b> {status}\n"
+            "• <b>当前 AI 模型:</b> <code>{model}</code>\n\n"
+            "请选择下方的订阅套餐或更改 AI 模型："
         ),
         "news_section": (
             "<b>📰 新闻与支持 Nodin AI</b>\n\n"
@@ -662,6 +769,7 @@ LEXICON = {
         "btn_admin": "⚡ لوحة التحكم",
         "btn_reset": "🔄 إعادة ضبط المحادثة",
         "btn_back": "🔙 القائمة الرئيسية",
+        "btn_models": "⚙️ اختيار نموذج الذكاء الاصطناعي",
         "welcome": "تم ضبط اللغة: <b>العربية</b> 🇸🇦\n\nيمكنك مراسلتي مباشرة أو اختيار قسم من القائمة:",
         "reset_msg": "🔄 <b>تم إعادة ضبط المحادثة!</b>\n\nاختر اللغة من جديد:",
         "ai_section": (
@@ -701,8 +809,9 @@ LEXICON = {
             "<b>👤 الملف الشخصي</b>\n\n"
             "• <b>الاسم:</b> {name}\n"
             "• <b>ID:</b> <code>{user_id}</code>\n"
-            "• <b>الحالة:</b> {status}\n\n"
-            "اختر باقة الاشتراك أدناه:"
+            "• <b>الحالة:</b> {status}\n"
+            "• <b>نموذج AI الحالي:</b> <code>{model}</code>\n\n"
+            "اختر باقة الاشتراك أو قم بتغيير نموذج الذكاء الاصطناعي:"
         ),
         "news_section": (
             "<b>📰 الأخبار والدعم Nodin AI</b>\n\n"
@@ -751,7 +860,7 @@ LEXICON = {
 }
 
 # ---------------------------------------------------------------------------
-# КЛАВИАТУРЫ
+# КЛАВИАТУРЫ И МЕНЮ ВЫБОРА МОДЕЛЕЙ
 # ---------------------------------------------------------------------------
 
 def get_main_keyboard(user_id: int, lang: str = "ru") -> ReplyKeyboardMarkup:
@@ -760,7 +869,8 @@ def get_main_keyboard(user_id: int, lang: str = "ru") -> ReplyKeyboardMarkup:
         [KeyboardButton(text=texts["btn_ai"])],
         [KeyboardButton(text=texts["btn_smm"]), KeyboardButton(text=texts["btn_study"])],
         [KeyboardButton(text=texts["btn_voice"]), KeyboardButton(text=texts["btn_profile"])],
-        [KeyboardButton(text=texts["btn_news"]), KeyboardButton(text=texts["btn_reset"])]
+        [KeyboardButton(text=texts["btn_news"]), KeyboardButton(text=texts["btn_models"])],
+        [KeyboardButton(text=texts["btn_reset"])]
     ]
     if user_id in ADMIN_IDS:
         keyboard.append([KeyboardButton(text=texts["btn_admin"])])
@@ -788,6 +898,22 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🇸🇦 العربية", callback_data="lang_ar")
         ]
     ])
+
+def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
+    """Инлайн клавиатура для выбора ИИ модели с отметкой текущей"""
+    models = [
+        ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
+        ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
+        ("🟣 Claude 3.5 Sonnet", "model_claude-3-5-sonnet-20241022"),
+        ("⚫ Grok 2", "model_grok-2-latest")
+    ]
+    
+    keyboard = []
+    for name, code in models:
+        prefix = "✅ " if code == current_model or (code.split("_")[1] in current_model) else ""
+        keyboard.append([InlineKeyboardButton(text=f"{prefix}{name}", callback_data=code)])
+        
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # ---------------------------------------------------------------------------
 # ОБРАБОТЧИКИ КОМАНД И НАВИГАЦИИ
@@ -838,6 +964,33 @@ async def back_to_main(message: types.Message):
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
     await message.answer(texts["welcome"], reply_markup=get_main_keyboard(user_id, lang), parse_mode=ParseMode.HTML)
+
+# Обработка кнопки выбора модели из меню
+@dp.message(F.text.in_({v["btn_models"] for v in LEXICON.values()}))
+async def models_menu_handler(message: types.Message):
+    user_id = message.from_user.id
+    current_model = get_user_model(user_id)
+    
+    text = (
+        "⚙️ <b>Выбор искусственного интеллекта</b>\n\n"
+        "Выберите модель, через которую будут выполняться все ваши запросы в чатах, разделах SMM и учебы:\n\n"
+        f"Текущая модель: <code>{current_model}</code>"
+    )
+    await message.answer(text, reply_markup=get_models_inline_keyboard(current_model), parse_mode=ParseMode.HTML)
+
+@dp.callback_query(F.data.startswith("model_"))
+async def process_model_selection(callback: types.CallbackQuery):
+    await callback.answer()
+    new_model = callback.data.replace("model_", "")
+    user_id = callback.from_user.id
+    
+    set_user_model(user_id, new_model)
+    
+    await callback.message.edit_text(
+        f"✅ <b>Модель успешно изменена!</b>\n\nТеперь запросы обрабатываются через: <code>{new_model}</code>",
+        reply_markup=get_models_inline_keyboard(new_model),
+        parse_mode=ParseMode.HTML
+    )
 
 @dp.message(F.text.in_({v["btn_admin"] for v in LEXICON.values()}))
 async def admin_panel_handler(message: types.Message):
@@ -977,7 +1130,24 @@ async def ai_chat_section(message: types.Message):
     user_chat_history[user_id] = []
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
-    await message.answer(texts["ai_section"], reply_markup=get_back_keyboard(lang), parse_mode=ParseMode.HTML)
+    
+    # Кнопка быстрой смены модели прямо в свободном чате
+    chat_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Сменить модель ИИ", callback_data="quick_change_model")]
+    ])
+    await message.answer(texts["ai_section"], reply_markup=chat_kb, parse_mode=ParseMode.HTML)
+    await message.answer("👇 Меню навигации:", reply_markup=get_back_keyboard(lang))
+
+@dp.callback_query(F.data == "quick_change_model")
+async def quick_change_model_cb(callback: types.CallbackQuery):
+    await callback.answer()
+    user_id = callback.from_user.id
+    current_model = get_user_model(user_id)
+    await callback.message.answer(
+        f"⚙️ Выберите модель для общения:\nТекущая: <code>{current_model}</code>",
+        reply_markup=get_models_inline_keyboard(current_model),
+        parse_mode=ParseMode.HTML
+    )
 
 @dp.message(F.text.in_({v["btn_voice"] for v in LEXICON.values()}))
 async def voice_section(message: types.Message):
@@ -992,10 +1162,13 @@ async def smm_section(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
+    current_model = get_user_model(user_id)
+    
     inline_smm = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=texts["smm_post"], callback_data="feature_smm_post")],
         [InlineKeyboardButton(text=texts["smm_ideas"], callback_data="feature_smm_ideas")],
-        [InlineKeyboardButton(text=texts["smm_ad"], callback_data="feature_smm_ad")]
+        [InlineKeyboardButton(text=texts["smm_ad"], callback_data="feature_smm_ad")],
+        [InlineKeyboardButton(text=f"⚙️ Модель: {current_model.split('-')[0]}", callback_data="quick_change_model")]
     ])
     await message.answer(texts["smm_section"], reply_markup=inline_smm, parse_mode=ParseMode.HTML)
 
@@ -1004,10 +1177,13 @@ async def study_section(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
+    current_model = get_user_model(user_id)
+    
     inline_study = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=texts["code_debug"], callback_data="feature_code_debug")],
         [InlineKeyboardButton(text=texts["explain_topic"], callback_data="feature_explain_topic")],
-        [InlineKeyboardButton(text=texts["lang_help"], callback_data="feature_lang_help")]
+        [InlineKeyboardButton(text=texts["lang_help"], callback_data="feature_lang_help")],
+        [InlineKeyboardButton(text=f"⚙️ Модель: {current_model.split('-')[0]}", callback_data="quick_change_model")]
     ])
     await message.answer(texts["study_section"], reply_markup=inline_study, parse_mode=ParseMode.HTML)
 
@@ -1016,6 +1192,7 @@ async def profile_section(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
     texts = LEXICON.get(lang, LEXICON["ru"])
+    current_model = get_user_model(user_id)
     
     if user_id in ADMIN_IDS:
         status_text = "🔑 Администратор (полный доступ)"
@@ -1024,11 +1201,12 @@ async def profile_section(message: types.Message):
     else:
         status_text = "🔒 Базовый уровень"
         
-    text = texts["profile_section"].format(name=message.from_user.first_name, user_id=user_id, status=status_text)
+    text = texts["profile_section"].format(name=message.from_user.first_name, user_id=user_id, status=status_text, model=current_model)
     
     profile_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=texts["sub_3"], callback_data="sub_3_tier")],
-        [InlineKeyboardButton(text=texts["sub_5"], callback_data="sub_5_tier")]
+        [InlineKeyboardButton(text=texts["sub_5"], callback_data="sub_5_tier")],
+        [InlineKeyboardButton(text="⚙️ Изменить ИИ модель", callback_data="quick_change_model")]
     ])
     await message.answer(text, reply_markup=profile_keyboard, parse_mode=ParseMode.HTML)
 
@@ -1082,16 +1260,8 @@ async def process_ai_reply_media(callback: types.CallbackQuery):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = generate_with_retry(
-            client=gemini_client,
-            model_name=AI_MODEL_NAME,
-            contents=[prompt],
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.7
-            }
-        )
-        formatted_reply = format_gemini_response_to_html(response.text)
+        ai_reply = generate_smart_ai_response(user_id, [prompt], system_instruction)
+        formatted_reply = format_gemini_response_to_html(ai_reply)
         await callback.message.answer(f"<b>💬 Вариант ответа для друга:</b>\n\n{formatted_reply}", parse_mode=ParseMode.HTML)
     except Exception as e:
         logging.error(f"Ошибка ответа: {e}")
@@ -1102,19 +1272,19 @@ async def process_ai_reply_media(callback: types.CallbackQuery):
 # ---------------------------------------------------------------------------
 
 async def process_ai_with_image(message: types.Message, photo_bytes: bytes, prompt_text: str, lang: str):
+    user_id = message.from_user.id
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = generate_with_retry(
-            client=gemini_client,
-            model_name=AI_MODEL_NAME,
-            contents=[prompt_text, {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}}],
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.7
-            }
-        )
-        ai_reply = response.text
+        
+        # Для Gemini поддерживаем мультимодальность с картинкой напрямую
+        model_choice = get_user_model(user_id)
+        if "gemini" in model_choice:
+            contents = [prompt_text, {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}}]
+        else:
+            contents = prompt_text + "\n[Пользователь прикрепил изображение, но текущая модель поддерживает только текст]"
+            
+        ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
         formatted_reply = format_gemini_response_to_html(ai_reply)
         await message.answer(formatted_reply, parse_mode=ParseMode.HTML)
     except Exception as e:
@@ -1152,16 +1322,14 @@ async def handle_voice_message(message: types.Message):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = generate_with_retry(
-            client=gemini_client,
-            model_name=AI_MODEL_NAME,
-            contents=[prompt, {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}],
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.3
-            }
-        )
-        raw_text = response.text
+        
+        model_choice = get_user_model(user_id)
+        if "gemini" in model_choice:
+            contents = [prompt, {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}]
+        else:
+            contents = "Голосовое сообщение (транскрипция доступна при использовании моделей Gemini)."
+
+        raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
         last_transcriptions[user_id] = raw_text
         formatted_reply = format_gemini_response_to_html(raw_text)
         
@@ -1197,16 +1365,14 @@ async def handle_video_message(message: types.Message):
     
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
-        response = generate_with_retry(
-            client=gemini_client,
-            model_name=AI_MODEL_NAME,
-            contents=[prompt, {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}],
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.3
-            }
-        )
-        raw_text = response.text
+        
+        model_choice = get_user_model(user_id)
+        if "gemini" in model_choice:
+            contents = [prompt, {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}]
+        else:
+            contents = "Видеосообщение."
+
+        raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
         last_transcriptions[user_id] = raw_text
         formatted_reply = format_gemini_response_to_html(raw_text)
         
@@ -1219,14 +1385,13 @@ async def handle_video_message(message: types.Message):
         await message.answer("⚠️ Не удалось обработать видеосообщение.", reply_markup=get_back_keyboard(lang))
 
 # ---------------------------------------------------------------------------
-# ГЛАВНЫЙ ЧАТ (ОБРАБОТКА ТЕКСТА С ПОРОГА С УМНЫМ ПРОМПТОМ)
+# ГЛАВНЫЙ ЧАТ (ОБРАБОТКА ТЕКСТА)
 # ---------------------------------------------------------------------------
 
 @dp.message(F.text)
 async def handle_ai_chat(message: types.Message):
     user_id = message.from_user.id
     
-    # Защита от спама: если бот еще занят ответом этому пользователю
     if user_id in active_processing:
         await message.answer("⏳ Пожалуйста, подождите, я еще отвечаю на ваше предыдущее сообщение...")
         return
@@ -1241,16 +1406,13 @@ async def handle_ai_chat(message: types.Message):
         lang = get_user_lang(user_id)
         user_text = message.text
         
-        # Показываем статус «печатает...» в Telegram
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
         
         if user_id not in user_chat_history:
             user_chat_history[user_id] = []
         
-        # Добавляем сообщение пользователя в историю
         user_chat_history[user_id].append({"role": "user", "parts": [{"text": user_text}]})
         
-        # Динамическое ограничение памяти: 30 для базовых, 200 для VIP/Админов
         if user_id in ADMIN_IDS or is_user_vip(user_id):
             max_history_messages = 200
         else:
@@ -1261,30 +1423,19 @@ async def handle_ai_chat(message: types.Message):
         
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        # Запрос к Gemini с защитой от 503 ошибок
-        response = generate_with_retry(
-            client=gemini_client,
-            model_name=AI_MODEL_NAME,
-            contents=user_chat_history[user_id],
-            config={
-                "system_instruction": system_instruction,
-                "temperature": 0.7
-            }
-        )
-        ai_reply = response.text
+        # Универсальный вызов выбранной модели
+        ai_reply = generate_smart_ai_response(user_id, user_chat_history[user_id], system_instruction)
         
-        # Сохраняем ответ модели в историю
         user_chat_history[user_id].append({"role": "model", "parts": [{"text": ai_reply}]})
         
         formatted_reply = format_gemini_response_to_html(ai_reply)
         await message.answer(formatted_reply, reply_markup=get_back_keyboard(lang), parse_mode=ParseMode.HTML)
         
     except Exception as e:
-        logging.error(f"Ошибка Gemini API: {e}")
-        await message.answer("⚠️ Извините, сервера Google временно перегружены. Попробуйте отправить сообщение еще раз.", reply_markup=get_back_keyboard(lang))
+        logging.error(f"Ошибка генерации API: {e}")
+        await message.answer("⚠️ Извините, произошла ошибка при обращении к ИИ. Попробуйте еще раз.", reply_markup=get_back_keyboard(lang))
         
     finally:
-        # Обязательно снимаем блокировку спама по завершении
         active_processing.discard(user_id)
 
 # ---------------------------------------------------------------------------
@@ -1294,7 +1445,7 @@ async def handle_ai_chat(message: types.Message):
 async def main():
     init_db()
     print("🤖 База данных SQLite инициализирована!")
-    print("🤖 Nodin AI полностью восстановлен в полном объеме (1200+ строк)!")
+    print("🤖 Nodin AI успешно запущен с поддержкой мультимодельности (Gemini, OpenAI, Claude, Grok)!")
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
