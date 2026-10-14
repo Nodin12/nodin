@@ -91,8 +91,8 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     """
     model_choice = get_user_model(user_id)
     
-    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash или Pro)
-    if "gemini" in model_choice:
+    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash, Pro или Argon)
+    if "gemini" in model_choice or "argon" in model_choice:
         delay = 2
         for attempt in range(4):
             try:
@@ -915,7 +915,8 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
-        ("🔹 Gemini Pro", "model_gemini-pro"),
+        ("🔹 Gemini 3.1 Pro", "model_gemini-3.1-pro"),
+        ("🔹 Gemini 4 Argon", "model_gemini-4-argon"),
         ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
         ("🟢 ChatGPT 6", "model_gpt-6"),
         ("🟣 Claude 3.5 Sonnet", "model_claude-3-5-sonnet-20241022"),
@@ -1343,7 +1344,7 @@ async def handle_photo_upload(message: types.Message):
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        if "gemini" in model_choice:
+        if "gemini" in model_choice or "argon" in model_choice:
             contents = [
                 prompt_text,
                 {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}},
@@ -1379,7 +1380,7 @@ async def handle_voice_message(message: types.Message):
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        if "gemini" in model_choice:
+        if "gemini" in model_choice or "argon" in model_choice:
             audio_part = {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}
             
             if current_section == "voice":
@@ -1438,7 +1439,7 @@ async def handle_video_message(message: types.Message):
     try:
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
-        if "gemini" in model_choice:
+        if "gemini" in model_choice or "argon" in model_choice:
             video_part = {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}
             
             if current_section == "voice":
@@ -1557,7 +1558,7 @@ async def handle_ai_chat(message: types.Message):
 async def main():
     init_db()
     print("🤖 База данных SQLite инициализирована!")
-    print("🤖 Nodin AI успешно запущен с нативной поддержкой моделей и разведением логики аудио-чатов!")
+    print("🤖 Nodin AI успешно запущен с поддержкой Gemini 3.1 Pro и Gemini 4 Argon!")
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
