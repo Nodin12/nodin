@@ -44,7 +44,7 @@ if not GEMINI_API_KEY:
 admin_id_env = os.getenv("ADMIN_IDS")
 ADMIN_IDS = {int(admin_id_env)} if admin_id_env else set()
 
-AI_MODEL_NAME = "gemini-3.8-flash"
+AI_MODEL_NAME = "gemini-2.5-flash"
 
 logging.basicConfig(level=logging.INFO)
 
