@@ -1319,7 +1319,7 @@ async def handle_photo_upload(message: types.Message):
         if "gemini" in model_choice:
             contents = [
                 prompt_text,
-                types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg"),
+                {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}},
             ]
             ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
         elif "gpt" in model_choice:
@@ -1353,7 +1353,7 @@ async def handle_voice_message(message: types.Message):
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
         if "gemini" in model_choice:
-            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
+            audio_part = {"inline_data": {"mime_type": "audio/ogg", "data": audio_bytes}}
             
             if current_section == "voice":
                 prompt = (
@@ -1412,7 +1412,7 @@ async def handle_video_message(message: types.Message):
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
         if "gemini" in model_choice:
-            video_part = types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")
+            video_part = {"inline_data": {"mime_type": "video/mp4", "data": video_bytes}}
             
             if current_section == "voice":
                 prompt = (
