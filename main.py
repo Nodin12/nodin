@@ -1344,7 +1344,6 @@ async def handle_voice_message(message: types.Message):
     lang = get_user_lang(user_id)
     model_choice = get_user_model(user_id)
     
-    # Если пользователь находится по умолчанию в Свободном чате (или явно выбрал чат с ИИ)
     current_section = user_current_section.get(user_id, "ai")
     
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -1356,15 +1355,17 @@ async def handle_voice_message(message: types.Message):
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
         if "gemini" in model_choice:
+            # Используем правильный метод SDK для передачи аудиобайтов
+            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
+            
             if current_section == "voice":
-                # Режим «Голосовые и Текст»: расшифровываем и переводим
                 prompt = (
                     "Распознай это голосовое сообщение.\n"
                     "1. Напиши оригинальный текст.\n"
                     "2. Укажи точный перевод на язык пользователя.\n"
                     "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод без своих комментариев."
                 )
-                contents = [prompt, types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")]
+                contents = [prompt, audio_part]
                 raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
                 last_transcriptions[user_id] = raw_text
                 formatted_reply = format_gemini_response_to_html(raw_text)
@@ -1375,9 +1376,8 @@ async def handle_voice_message(message: types.Message):
                 await message.answer(formatted_reply, reply_markup=media_reply_kb, parse_mode=ParseMode.HTML)
                 return
             else:
-                # Режим «Свободный чат с ИИ» (по умолчанию): отвечаем на вопрос в голосовом сообщении
                 prompt = "Распознай это голосовое сообщение и ответь на поставленный в нем вопрос."
-                contents = [prompt, types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")]
+                contents = [prompt, audio_part]
                 
                 if user_id not in user_chat_history:
                     user_chat_history[user_id] = []
