@@ -54,9 +54,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 
 if not BOT_TOKEN:
-    raise ValueError("⚠️ Ошибка: BOT_TOKEN не найден в переменных окружения (.env)!")
+    raise ValueError("⚠️ Ошибка: BOT_TOKEN не найден в переменных окружения (.env)!")[cite: 8]
 if not GEMINI_API_KEY:
-    raise ValueError("⚠️ Ошибка: GEMINI_API_KEY не найден в переменных окружения (.env)!")
+    raise ValueError("⚠️ Ошибка: GEMINI_API_KEY не найден в переменных окружения (.env)!")[cite: 8]
 
 admin_id_env = os.getenv("ADMIN_IDS")
 ADMIN_IDS = {int(admin_id_env)} if admin_id_env else set()
@@ -81,7 +81,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     Определяет выбранную пользователем модель и отправляет запрос в соответствующий API.
     Содержит защиту от 503 ошибок для Gemini и заглушки для отсутствующих ключей.
     """
-    model_choice = get_user_model(user_id) # например: "gemini-3.8-flash", "gpt-4o", "claude-3-5-sonnet", "grok-2"
+    model_choice = get_user_model(user_id)[cite: 8]
     
     # 1. СЕМЕЙСТВО GEMINI (Google)
     if "gemini" in model_choice:
@@ -108,7 +108,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 2. СЕМЕЙСТВО OPENAI (ChatGPT)
     elif "gpt" in model_choice:
         if not openai_client:
-            return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."
+            return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."[cite: 8]
         
         messages = []
         if system_instruction:
@@ -137,7 +137,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 3. СЕМЕЙСТВО ANTHROPIC (Claude)
     elif "claude" in model_choice:
         if not anthropic_client:
-            return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."
+            return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."[cite: 8]
         
         messages = []
         if system_instruction:
@@ -165,7 +165,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     # 4. СЕМЕЙСТВО XAI (Grok)
     elif "grok" in model_choice:
         if not xai_client:
-            return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."
+            return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."[cite: 8]
         
         messages = []
         if system_instruction:
@@ -185,9 +185,9 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
 # ---------------------------------------------------------------------------
 
-user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}
-last_transcriptions = {}  # {user_id: "Текст аудио/видео"}
-active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация
+user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}[cite: 8]
+last_transcriptions = {}  # {user_id: "Текст аудио/видео"}[cite: 8]
+active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация[cite: 8]
 
 # ---------------------------------------------------------------------------
 # СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ (ЛАКОНИЧНЫЙ И ТОЧНЫЙ ФОРМАТ)
@@ -905,16 +905,26 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
+    # Обновленный список моделей с раздельными кнопками по твоему списку
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
+        ("🔹 Gemini Pro", "model_gemini-pro"),
         ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
+        ("🟢 ChatGPT 6", "model_gpt-6"),
         ("🟣 Claude 3.5 Sonnet", "model_claude-3-5-sonnet-20241022"),
-        ("⚫ Grok 2", "model_grok-2-latest")
+        ("🟣 Claude 4.6 Sonnet", "model_claude-4-6-sonnet"),
+        ("🟣 Claude Haiku 4.5", "model_claude-4-5-haiku"),
+        ("🟣 Claude Opus 5", "model_claude-5-opus"),
+        ("🟣 Claude Opus 5.5", "model_claude-5-5-opus"),
+        ("⚫ Grok 4.3", "model_grok-4-3"),
+        ("⚫ Grok 4.6", "model_grok-4-6"),
+        ("⚫ Grok 4.7", "model_grok-4-7")
     ]
     
     keyboard = []
     for name, code in models:
-        prefix = "✅ " if code == current_model or (code.split("_")[1] in current_model) else ""
+        model_id = code.replace("model_", "")
+        prefix = "✅ " if current_model == model_id else ""
         keyboard.append([InlineKeyboardButton(text=f"{prefix}{name}", callback_data=code)])
         
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -1137,8 +1147,8 @@ async def ai_chat_section(message: types.Message):
     chat_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚙️ Сменить модель ИИ", callback_data="quick_change_model")]
     ])
+    # УБРАНО лишнее сообщение "Меню навигации:" по твоему запросу
     await message.answer(texts["ai_section"], reply_markup=chat_kb, parse_mode=ParseMode.HTML)
-    await message.answer("👇 Меню навигации:", reply_markup=get_back_keyboard(lang))
 
 @dp.callback_query(F.data == "quick_change_model")
 async def quick_change_model_cb(callback: types.CallbackQuery):
