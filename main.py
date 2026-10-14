@@ -1343,7 +1343,6 @@ async def handle_voice_message(message: types.Message):
     user_id = message.from_user.id
     lang = get_user_lang(user_id)
     model_choice = get_user_model(user_id)
-    
     current_section = user_current_section.get(user_id, "ai")
     
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -1355,7 +1354,6 @@ async def handle_voice_message(message: types.Message):
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
         if "gemini" in model_choice:
-            # Используем правильный метод SDK для передачи аудиобайтов
             audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
             
             if current_section == "voice":
@@ -1415,6 +1413,8 @@ async def handle_video_message(message: types.Message):
         system_instruction = SYSTEM_PROMPTS.get(lang, SYSTEM_PROMPTS["ru"])
         
         if "gemini" in model_choice:
+            video_part = types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")
+            
             if current_section == "voice":
                 prompt = (
                     "Распознай это видеосообщение.\n"
@@ -1422,7 +1422,7 @@ async def handle_video_message(message: types.Message):
                     "2. Укажи точный перевод на язык пользователя.\n"
                     "СТРОГОЕ ПРАВИЛО: Выведи ТОЛЬКО расшифровку и перевод."
                 )
-                contents = [prompt, types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")]
+                contents = [prompt, video_part]
                 raw_text = generate_smart_ai_response(user_id, contents, system_instruction)
                 last_transcriptions[user_id] = raw_text
                 formatted_reply = format_gemini_response_to_html(raw_text)
@@ -1434,7 +1434,7 @@ async def handle_video_message(message: types.Message):
                 return
             else:
                 prompt = "Распознай это видеосообщение и ответь на вопрос в нем."
-                contents = [prompt, types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")]
+                contents = [prompt, video_part]
                 ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
                 formatted_reply = format_gemini_response_to_html(ai_reply)
                 await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
