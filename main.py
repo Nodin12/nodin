@@ -74,11 +74,31 @@ anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if (anthropic 
 xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if (OpenAI and XAI_API_KEY) else None
 
 # ---------------------------------------------------------------------------
-# МЕНЕДЖЕРЫ СОСТОЯНИЙ (ОПРЕДЕЛЕНИЕ ТЕКУЩЕГО РАЗДЕЛА ПОЛЬЗОВАТЕЛЯ)
+# МЕНЕДЖЕРЫ СОСТОЯНИЙ И ЛИМИТОВ ТОКЕНОВ (5000 В ДЕНЬ)
 # ---------------------------------------------------------------------------
 
-user_current_section = {} # {user_id: "ai" или "voice" или другой раздел}[cite: 5, 6]
-admin_broadcast_state = {} # {admin_id: True/False}[cite: 5, 6]
+user_current_section = {} 
+admin_broadcast_state = {} 
+free_user_daily_usage = {}  # {user_id: {"date": "YYYY-MM-DD", "tokens": int}}
+
+def check_and_update_free_limits(user_id: int, estimated_tokens: int = 150) -> bool:
+    if user_id in ADMIN_IDS or is_user_vip(user_id):
+        return True
+        
+    today_str = time.strftime("%Y-%m-%d")
+    if user_id not in free_user_daily_usage:
+        free_user_daily_usage[user_id] = {"date": today_str, "tokens": 0}
+        
+    user_data = free_user_daily_usage[user_id]
+    if user_data["date"] != today_str:
+        user_data["date"] = today_str
+        user_data["tokens"] = 0
+        
+    if user_data["tokens"] >= 5000:
+        return False
+        
+    user_data["tokens"] += estimated_tokens
+    return True
 
 # ---------------------------------------------------------------------------
 # УНИВЕРСАЛЬНЫЙ ДИСПЕТЧЕР ЗАПРОСОВ С ПОДДЕРЖКОЙ ВСЕХ ИИ И РЕТРАЕВ
@@ -91,7 +111,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     """
     model_choice = get_user_model(user_id)
     
-    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash, Pro или Argon)[cite: 5, 6]
+    # 1. СЕМЕЙСТВО GEMINI (Google)[cite: 5, 6]
     if "gemini" in model_choice or "argon" in model_choice:
         delay = 2
         for attempt in range(4):
@@ -193,12 +213,12 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
 # ---------------------------------------------------------------------------
 
-user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}[cite: 5, 6]
-last_transcriptions = {}  # {user_id: "Текст аудио/видео"}[cite: 5, 6]
-active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация[cite: 5, 6]
+user_chat_history = {}    
+last_transcriptions = {}  
+active_processing = set() 
 
 # ---------------------------------------------------------------------------
-# СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ (ЛАКОНИЧНЫЙ И ТОЧНЫЙ ФОРМАТ)
+# СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPTS = {
@@ -260,7 +280,7 @@ def format_gemini_response_to_html(text: str) -> str:
     return formatted.strip()
 
 # ---------------------------------------------------------------------------
-# ПОЛНЫЙ СЛОВАРЬ ЛЕКСИКОНА ДЛЯ ВСЕХ 6 ЯЗЫКОВ
+# СЛОВАРЬ ЛЕКСИКОНА ДЛЯ ВСЕХ 6 ЯЗЫКОВ
 # ---------------------------------------------------------------------------
 
 LEXICON = {
@@ -327,8 +347,8 @@ LEXICON = {
             "Здесь публикуются все важные обновления проекта, полезные фишки и анонсы. "
             "Следи за новостями, чтобы первыми узнавать о новых крутых возможностях бота!"
         ),
-        "sub_3": "⭐ PRO тариф ($3/мес)",
-        "sub_5": "🚀 VIP тариф ($5/мес)",
+        "sub_3": "⭐ Pro тариф ($3/мес)[cite: 5, 6]",
+        "sub_5": "🚀 VIP тариф ($5/мес)[cite: 5, 6]",
         "smm_post": "✍️ Создать пост",
         "smm_ideas": "💡 Идеи для контента",
         "smm_ad": "🎯 Текст для рекламы",
@@ -439,8 +459,8 @@ LEXICON = {
             "All major project updates, useful tips, and announcements are published here. "
             "Follow the news to be the first to know about cool new features!"
         ),
-        "sub_3": "⭐ PRO Tier ($3/mo)",
-        "sub_5": "🚀 VIP Tier ($5/mo)",
+        "sub_3": "⭐ Pro Tier ($3/mo)[cite: 5, 6]",
+        "sub_5": "🚀 VIP Tier ($5/mo)[cite: 5, 6]",
         "smm_post": "✍️ Create Post",
         "smm_ideas": "💡 Content Ideas",
         "smm_ad": "🎯 Ad Text",
@@ -538,8 +558,8 @@ LEXICON = {
             "<b>📰 Noticias y Soporte Nodin AI</b>\n\n"
             "Aquí se publican las actualizaciones oficiales y novedades del proyecto."
         ),
-        "sub_3": "⭐ Plan PRO ($3/mes)",
-        "sub_5": "🚀 Plan VIP ($5/mes)",
+        "sub_3": "⭐ Pro Plan ($3/mes)[cite: 5, 6]",
+        "sub_5": "🚀 VIP Plan ($5/mes)[cite: 5, 6]",
         "smm_post": "✍️ Crear Publicación",
         "smm_ideas": "💡 Ideas de Contenido",
         "smm_ad": "🎯 Texto de Anuncio",
@@ -636,8 +656,8 @@ LEXICON = {
             "<b>📰 Haberler ve Destek Nodin AI</b>\n\n"
             "Proje güncellemeleri ve duyurular burada yayınlanır. Yeni özelliklerden ilk siz haberdar olun!"
         ),
-        "sub_3": "⭐ PRO Tarifesi ($3/ay)",
-        "sub_5": "🚀 VIP Tarifesi ($5/ay)",
+        "sub_3": "⭐ Pro Tier ($3/ay)[cite: 5, 6]",
+        "sub_5": "🚀 VIP Tier ($5/ay)[cite: 5, 6]",
         "smm_post": "✍️ Gönderi Oluştur",
         "smm_ideas": "💡 İçerik Fikirleri",
         "smm_ad": "🎯 Reklam Metni",
@@ -732,8 +752,8 @@ LEXICON = {
             "<b>📰 新闻与支持 Nodin AI</b>\n\n"
             "项目最新动态与功能发布。关注最新消息，第一时间了解新功能！"
         ),
-        "sub_3": "⭐ PRO 套餐 ($3/月)",
-        "sub_5": "🚀 VIP 套餐 ($5/月)",
+        "sub_3": "⭐ Pro 套餐 ($3/月)[cite: 5, 6]",
+        "sub_5": "🚀 VIP 套餐 ($5/月)[cite: 5, 6]",
         "smm_post": "✍️ 创建帖子",
         "smm_ideas": "💡 内容灵感",
         "smm_ad": "🎯 广告文案",
@@ -830,8 +850,8 @@ LEXICON = {
             "<b>📰 الأخبار والدعم Nodin AI</b>\n\n"
             "تُنشر هنا جميع تحديثات المشروع الهامة والنصائح والإعلانات. تابع الأخبار لتكون أول من يعلم بالميزات الجديدة!"
         ),
-        "sub_3": "⭐ باقة PRO ($3/شهر)",
-        "sub_5": "🚀 باقة VIP ($5/شهر)",
+        "sub_3": "⭐ Pro Plan ($3/شهر)[cite: 5, 6]",
+        "sub_5": "🚀 VIP Plan ($5/شهر)[cite: 5, 6]",
         "smm_post": "✍️ إنشاء منشور",
         "smm_ideas": "💡 أفكار المحتوى",
         "smm_ad": "🎯 نص إعلاني",
@@ -873,7 +893,7 @@ LEXICON = {
 }
 
 # ---------------------------------------------------------------------------
-# КЛАВИАТУРЫ И МЕНЮ ВЫБОРА МОДЕЛЕЙ
+# КЛАВИАТУРЫ И МЕНЮ ВЫБОРА МОДЕЛЕЙ (ОБНОВЛЕННЫЙ СПИСОК РОВНО ИЗ 10 МОДЕЛЕЙ)
 # ---------------------------------------------------------------------------
 
 def get_main_keyboard(user_id: int, lang: str = "ru") -> ReplyKeyboardMarkup:
@@ -913,19 +933,17 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
+    # Точный список ровно из 10 актуальных моделей без лишних
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
-        ("🔹 Gemini 3.1 Pro", "model_gemini-3.1-pro-preview"),
+        ("🔹 Gemini 3.1 Pro Preview", "model_gemini-3.1-pro-preview"),
         ("🔹 Gemini 4 Argon", "model_gemini-4-argon"),
-        ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
-        ("🟢 ChatGPT 6", "model_gpt-6"),
-        ("🟣 Claude 3.5 Sonnet", "model_claude-3-5-sonnet-20241022"),
-        ("🟣 Claude 4.6 Sonnet", "model_claude-4-6-sonnet"),
-        ("🟣 Claude Haiku 4.5", "model_claude-4-5-haiku"),
-        ("🟣 Claude Opus 5", "model_claude-5-opus"),
-        ("🟣 Claude Opus 5.5", "model_claude-5-5-opus"),
+        ("🟢 ChatGPT-6-Luna", "model_gpt-6"),
+        ("🟢 ChatGPT-6.1-SOL", "model_gpt-6.1-sol"),
+        ("🟣 Claude Haiku 5.5", "model_claude-haiku-5-5"),
+        ("🟣 Claude Sonnet 5.5", "model_claude-sonnet-5-5"),
+        ("🟣 Claude Opus 5.5", "model_claude-opus-5-5"),
         ("⚫ Grok 4.3", "model_grok-4-3"),
-        ("⚫ Grok 4.6", "model_grok-4-6"),
         ("⚫ Grok 4.7", "model_grok-4-7")
     ]
     
@@ -1024,7 +1042,7 @@ async def admin_panel_handler(message: types.Message):
     
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Подробная статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="⭐ Управление VIP пользователями", callback_data="admin_vip_menu")],
+        [InlineKeyboardButton(text="⭐ Управление подписками", callback_data="admin_vip_menu")],
         [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast_start")]
     ])
     
@@ -1058,7 +1076,7 @@ async def process_admin_stats(callback: types.CallbackQuery):
     stats_text = (
         f"📊 <b>Подробная статистика Nodin AI</b>\n\n"
         f"👥 Всего зарегистрировано пользователей: <b>{total_users}</b>\n"
-        f"⭐ Активных VIP-подписчиков: <b>{total_vips}</b>\n\n"
+        f"⭐ Активных VIP-подписчиков: <b>{total_vips}</b>[cite: 5, 6]\n\n"
         f"<b>Последние 10 пользователей:</b>\n"
         f"{users_list_str}"
     )
@@ -1073,15 +1091,12 @@ async def process_admin_vip_menu(callback: types.CallbackQuery):
     await callback.answer()
     
     vip_instructions = (
-        "⭐ <b>Управление статусом VIP</b>\n\n"
-        "Для управления VIP-статусом любого пользователя используйте специальные команды:\n\n"
-        "1️⃣ <b>Выдать VIP-статус:</b>\n"
-        "<code>/addvip ID_пользователя</code>\n"
-        "<i>Пример:</i> <code>/addvip 5183816315</code>\n\n"
-        "2️⃣ <b>Снять VIP-статус:</b>\n"
-        "<code>/removevip ID_пользователя</code>\n"
-        "<i>Пример:</i> <code>/removevip 5183816315</code>\n\n"
-        "💡 <i>Вы можете скопировать заготовку команды и заменить ID на нужный!</i>"
+        "⭐ <b>Управление подписками</b>\n\n"
+        "Для управления статусом любого пользователя используйте команды:\n\n"
+        "1️⃣ <b>Выдать статус:</b>\n"
+        "<code>/addvip ID_пользователя</code>\n\n"
+        "2️⃣ <b>Снять статус:</b>\n"
+        "<code>/removevip ID_пользователя</code>"
     )
     await callback.message.answer(vip_instructions, parse_mode=ParseMode.HTML)
 
@@ -1096,9 +1111,8 @@ async def process_broadcast_start(callback: types.CallbackQuery):
     
     await callback.message.answer(
         "📢 <b>Режим рассылки активирован</b>\n\n"
-        "Отправьте следующим сообщением текст, который хотите разослать всем пользователям бота.\n"
-        "<i>Поддерживается HTML-форматирование и ссылки.</i>\n\n"
-        "❌ Чтобы отменить рассылку, просто отправьте команду /cancel",
+        "Отправьте следующим сообщением текст для рассылки.\n"
+        "❌ Чтобы отменить, отправьте /cancel",
         parse_mode=ParseMode.HTML
     )
 
@@ -1116,12 +1130,12 @@ async def cmd_add_vip(message: types.Message):
     
     args = message.text.split()
     if len(args) < 2 or not args[1].isdigit():
-        await message.answer("⚠️ <b>Ошибка!</b> Укажите ID пользователя.\nПример: <code>/addvip 5183816315</code>", parse_mode=ParseMode.HTML)
+        await message.answer("⚠️ Укажите ID: <code>/addvip ID</code>", parse_mode=ParseMode.HTML)
         return
     
     target_id = int(args[1])
     set_vip_status(target_id, 1)
-    await message.answer(f"✅ VIP-статус успешно <b>ВЫДАН</b> пользователю с ID: <code>{target_id}</code> ⭐", parse_mode=ParseMode.HTML)
+    await message.answer(f"✅ Статус выдан пользователю <code>{target_id}</code>[cite: 5, 6]", parse_mode=ParseMode.HTML)
 
 @dp.message(Command("removevip"))
 async def cmd_remove_vip(message: types.Message):
@@ -1130,12 +1144,12 @@ async def cmd_remove_vip(message: types.Message):
     
     args = message.text.split()
     if len(args) < 2 or not args[1].isdigit():
-        await message.answer("⚠️ <b>Ошибка!</b> Укажите ID пользователя.\nПример: <code>/removevip 5183816315</code>", parse_mode=ParseMode.HTML)
+        await message.answer("⚠️ Укажите ID: <code>/removevip ID</code>", parse_mode=ParseMode.HTML)
         return
     
     target_id = int(args[1])
     set_vip_status(target_id, 0)
-    await message.answer(f"❌ VIP-статус успешно <b>СНЯТ</b> у пользователя с ID: <code>{target_id}</code>", parse_mode=ParseMode.HTML)
+    await message.answer(f"❌ Статус снят у пользователя <code>{target_id}</code>", parse_mode=ParseMode.HTML)
 
 @dp.message(F.text.in_({v["btn_reset"] for v in LEXICON.values()}))
 async def reset_chat_handler(message: types.Message):
@@ -1250,9 +1264,9 @@ async def profile_section(message: types.Message):
     if user_id in ADMIN_IDS:
         status_text = "🔑 Администратор (полный доступ)"
     elif is_user_vip(user_id):
-        status_text = "⭐ VIP Подписчик"
+        status_text = "🚀 VIP Подписчик"[cite: 5, 6]
     else:
-        status_text = "🔒 Базовый уровень"
+        status_text = "🔒 Базовый уровень (Pro)"[cite: 5, 6]
         
     text = texts["profile_section"].format(name=message.from_user.first_name, user_id=user_id, status=status_text, model=current_model)
     
@@ -1291,9 +1305,9 @@ async def process_subscription_buttons(callback: types.CallbackQuery):
     await callback.answer()
     tier = callback.data
     if "3" in tier:
-        await callback.message.answer("⭐ Вы выбрали PRO тариф за $3/мес. Платежная система в разработке!", parse_mode=ParseMode.HTML)
+        await callback.message.answer("⭐ Вы выбрали Pro тариф ($3/мес)[cite: 5, 6]. Платежная система в разработке!", parse_mode=ParseMode.HTML)
     elif "5" in tier:
-        await callback.message.answer("🚀 VIP тариф за $5/мес. Платежная система в разработке!", parse_mode=ParseMode.HTML)
+        await callback.message.answer("🚀 VIP тариф ($5/мес)[cite: 5, 6]. Платежная система в разработке!", parse_mode=ParseMode.HTML)
 
 @dp.callback_query(F.data == "ai_reply_media")
 async def process_ai_reply_media(callback: types.CallbackQuery):
@@ -1350,14 +1364,8 @@ async def handle_photo_upload(message: types.Message):
                 {"inline_data": {"mime_type": "image/jpeg", "data": photo_bytes}},
             ]
             ai_reply = generate_smart_ai_response(user_id, contents, system_instruction)
-        elif "gpt" in model_choice:
-            ai_reply = "⚠️ Модель ChatGPT в данный момент настроена только для текста."
-        elif "claude" in model_choice:
-            ai_reply = "⚠️ Модель Claude в данный момент настроена только для текста."
-        elif "grok" in model_choice:
-            ai_reply = "⚠️ Модель Grok в данный момент настроена только для текста."
         else:
-            ai_reply = "⚠️ Выбранная модель не поддерживает обработку изображений."
+            ai_reply = generate_smart_ai_response(user_id, prompt_text, system_instruction)
 
         formatted_reply = format_gemini_response_to_html(ai_reply)
         await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
@@ -1414,7 +1422,7 @@ async def handle_voice_message(message: types.Message):
                 await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
                 return
         else:
-            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку аудио.")
+            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку аудио напрямую.")
     except Exception as e:
         logging.error(f"Ошибка аудио: {e}")
         await message.answer("⚠️ Не удалось распознать голосовое сообщение.", reply_markup=get_back_keyboard(lang))
@@ -1467,13 +1475,13 @@ async def handle_video_message(message: types.Message):
                 await message.answer(formatted_reply, parse_mode=ParseMode.HTML, reply_markup=get_back_keyboard(lang))
                 return
         else:
-            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку видео.")
+            await message.answer("⚠️ Текущая выбранная модель пока не поддерживает обработку видео напрямую.")
     except Exception as e:
         logging.error(f"Ошибка видео: {e}")
         await message.answer("⚠️ Не удалось обработать видеосообщение.", reply_markup=get_back_keyboard(lang))
 
 # ---------------------------------------------------------------------------
-# ГЛАВНЫЙ ЧАТ (ОБРАБОТКА ТЕКСТА И РАССЫЛКА)
+# ГЛАВНЫЙ ЧАТ С ЛИМИТОМ ТОКЕНОВ (5 000 В ДЕНЬ) И РАССЫЛКОЙ
 # ---------------------------------------------------------------------------
 
 @dp.message(F.text)
@@ -1502,6 +1510,21 @@ async def handle_ai_chat(message: types.Message):
             f"✅ <b>Рассылка успешно завершена!</b>\n\n"
             f"📤 Доставлено: <b>{sent_count}</b>\n"
             f"🚫 Заблокировали бота: <b>{blocked_count}</b>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Проверка суточного лимита токенов для бесплатных пользователей
+    estimated_request_tokens = len(message.text) // 3 + 100
+    if not check_and_update_free_limits(user_id, estimated_request_tokens):
+        sub_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Pro тариф ($3/мес)[cite: 5, 6]", callback_data="sub_3_tier")],
+            [InlineKeyboardButton(text="🚀 VIP тариф ($5/мес)[cite: 5, 6]", callback_data="sub_5_tier")]
+        ])
+        await message.answer(
+            "❌ <b>Вы исчерпали свой суточный лимит в 5 000 токенов!</b>\n\n"
+            "Чтобы снять ограничения и пользоваться всеми моделями безлимитно, оформите подписку:",
+            reply_markup=sub_kb,
             parse_mode=ParseMode.HTML
         )
         return
@@ -1558,7 +1581,7 @@ async def handle_ai_chat(message: types.Message):
 async def main():
     init_db()
     print("🤖 База данных SQLite инициализирована!")
-    print("🤖 Nodin AI успешно запущен с поддержкой Gemini 3.1 Pro и Gemini 4 Argon!")
+    print("🤖 Nodin AI успешно запущен со всеми 10 моделями, лимитами и статусами Pro/VIP!")[cite: 5, 6]
     
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
