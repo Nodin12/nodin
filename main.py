@@ -16,7 +16,7 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from google import genai
 
-# Импорты для других провайдеров (будут работать, если установлены библиотеки и ключи)
+# Импорты для других провайдеров (будут работать, если установлены библиотеки и ключи)[cite: 5, 6]
 try:
     from openai import OpenAI
 except ImportError:
@@ -67,7 +67,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Инициализация клиентов ИИ
+# Инициализация клиентов ИИ[cite: 5, 6]
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if (OpenAI and OPENAI_API_KEY) else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if (anthropic and ANTHROPIC_API_KEY) else None
@@ -77,8 +77,8 @@ xai_client = OpenAI(api_key=XAI_API_KEY, base_url="https://api.x.ai/v1") if (Ope
 # МЕНЕДЖЕРЫ СОСТОЯНИЙ (ОПРЕДЕЛЕНИЕ ТЕКУЩЕГО РАЗДЕЛА ПОЛЬЗОВАТЕЛЯ)
 # ---------------------------------------------------------------------------
 
-user_current_section = {} # {user_id: "ai" или "voice" или другой раздел}
-admin_broadcast_state = {} # {admin_id: True/False}
+user_current_section = {} # {user_id: "ai" или "voice" или другой раздел}[cite: 5, 6]
+admin_broadcast_state = {} # {admin_id: True/False}[cite: 5, 6]
 
 # ---------------------------------------------------------------------------
 # УНИВЕРСАЛЬНЫЙ ДИСПЕТЧЕР ЗАПРОСОВ С ПОДДЕРЖКОЙ ВСЕХ ИИ И РЕТРАЕВ
@@ -91,7 +91,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
     """
     model_choice = get_user_model(user_id)
     
-    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash, Pro или Argon)
+    # 1. СЕМЕЙСТВО GEMINI (Google) - использует строго ту модель, которую выбрал пользователь (Flash, Pro или Argon)[cite: 5, 6]
     if "gemini" in model_choice or "argon" in model_choice:
         delay = 2
         for attempt in range(4):
@@ -113,7 +113,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
                     continue
                 raise e
 
-    # 2. СЕМЕЙСТВО OPENAI (ChatGPT)
+    # 2. СЕМЕЙСТВО OPENAI (ChatGPT)[cite: 5, 6]
     elif "gpt" in model_choice:
         if not openai_client:
             return "⚠️ <b>API-ключ для OpenAI (ChatGPT) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте OPENAI_API_KEY в файл .env."
@@ -142,7 +142,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
         )
         return response.choices[0].message.content
 
-    # 3. СЕМЕЙСТВО ANTHROPIC (Claude)
+    # 3. СЕМЕЙСТВО ANTHROPIC (Claude)[cite: 5, 6]
     elif "claude" in model_choice:
         if not anthropic_client:
             return "⚠️ <b>API-ключ для Anthropic (Claude) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте ANTHROPIC_API_KEY в файл .env."
@@ -170,7 +170,7 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
         )
         return response.content[0].text
 
-    # 4. СЕМЕЙСТВО XAI (Grok)
+    # 4. СЕМЕЙСТВО XAI (Grok)[cite: 5, 6]
     elif "grok" in model_choice:
         if not xai_client:
             return "⚠️ <b>API-ключ для xAI (Grok) еще не настроен администратором.</b> Пожалуйста, выберите другую модель или добавьте XAI_API_KEY в файл .env."
@@ -193,9 +193,9 @@ def generate_smart_ai_response(user_id: int, contents, system_instruction: str =
 # ХРАНИЛИЩА СОСТОЯНИЙ И ПАМЯТИ
 # ---------------------------------------------------------------------------
 
-user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}
-last_transcriptions = {}  # {user_id: "Текст аудио/видео"}
-active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация
+user_chat_history = {}    # {user_id: [{"role": "user", "parts": [...]}]}[cite: 5, 6]
+last_transcriptions = {}  # {user_id: "Текст аудио/видео"}[cite: 5, 6]
+active_processing = set() # Множество пользователей, у которых прямо сейчас идет генерация[cite: 5, 6]
 
 # ---------------------------------------------------------------------------
 # СИСТЕМНЫЕ ПРОМПТЫ ДЛЯ 6 ЯЗЫКОВ (ЛАКОНИЧНЫЙ И ТОЧНЫЙ ФОРМАТ)
@@ -327,7 +327,7 @@ LEXICON = {
             "Здесь публикуются все важные обновления проекта, полезные фишки и анонсы. "
             "Следи за новостями, чтобы первыми узнавать о новых крутых возможностях бота!"
         ),
-        "sub_3": "⭐ Оформить подписку ($3/мес)",
+        "sub_3": "⭐ PRO тариф ($3/мес)",
         "sub_5": "🚀 VIP тариф ($5/мес)",
         "smm_post": "✍️ Создать пост",
         "smm_ideas": "💡 Идеи для контента",
@@ -439,7 +439,7 @@ LEXICON = {
             "All major project updates, useful tips, and announcements are published here. "
             "Follow the news to be the first to know about cool new features!"
         ),
-        "sub_3": "⭐ Subscribe ($3/mo)",
+        "sub_3": "⭐ PRO Tier ($3/mo)",
         "sub_5": "🚀 VIP Tier ($5/mo)",
         "smm_post": "✍️ Create Post",
         "smm_ideas": "💡 Content Ideas",
@@ -538,7 +538,7 @@ LEXICON = {
             "<b>📰 Noticias y Soporte Nodin AI</b>\n\n"
             "Aquí se publican las actualizaciones oficiales y novedades del proyecto."
         ),
-        "sub_3": "⭐ Suscribirse ($3/mes)",
+        "sub_3": "⭐ Plan PRO ($3/mes)",
         "sub_5": "🚀 Plan VIP ($5/mes)",
         "smm_post": "✍️ Crear Publicación",
         "smm_ideas": "💡 Ideas de Contenido",
@@ -636,7 +636,7 @@ LEXICON = {
             "<b>📰 Haberler ve Destek Nodin AI</b>\n\n"
             "Proje güncellemeleri ve duyurular burada yayınlanır. Yeni özelliklerden ilk siz haberdar olun!"
         ),
-        "sub_3": "⭐ Abone Ol ($3/ay)",
+        "sub_3": "⭐ PRO Tarifesi ($3/ay)",
         "sub_5": "🚀 VIP Tarifesi ($5/ay)",
         "smm_post": "✍️ Gönderi Oluştur",
         "smm_ideas": "💡 İçerik Fikirleri",
@@ -732,7 +732,7 @@ LEXICON = {
             "<b>📰 新闻与支持 Nodin AI</b>\n\n"
             "项目最新动态与功能发布。关注最新消息，第一时间了解新功能！"
         ),
-        "sub_3": "⭐ 订阅 ($3/月)",
+        "sub_3": "⭐ PRO 套餐 ($3/月)",
         "sub_5": "🚀 VIP 套餐 ($5/月)",
         "smm_post": "✍️ 创建帖子",
         "smm_ideas": "💡 内容灵感",
@@ -830,7 +830,7 @@ LEXICON = {
             "<b>📰 الأخبار والدعم Nodin AI</b>\n\n"
             "تُنشر هنا جميع تحديثات المشروع الهامة والنصائح والإعلانات. تابع الأخبار لتكون أول من يعلم بالميزات الجديدة!"
         ),
-        "sub_3": "⭐ الاشتراك ($3/شهر)",
+        "sub_3": "⭐ باقة PRO ($3/شهر)",
         "sub_5": "🚀 باقة VIP ($5/شهر)",
         "smm_post": "✍️ إنشاء منشور",
         "smm_ideas": "💡 أفكار المحتوى",
@@ -1073,7 +1073,7 @@ async def process_admin_vip_menu(callback: types.CallbackQuery):
     await callback.answer()
     
     vip_instructions = (
-        "⭐ <b>Управление VIP-статусом</b>\n\n"
+        "⭐ <b>Управление статусом VIP</b>\n\n"
         "Для управления VIP-статусом любого пользователя используйте специальные команды:\n\n"
         "1️⃣ <b>Выдать VIP-статус:</b>\n"
         "<code>/addvip ID_пользователя</code>\n"
@@ -1250,7 +1250,7 @@ async def profile_section(message: types.Message):
     if user_id in ADMIN_IDS:
         status_text = "🔑 Администратор (полный доступ)"
     elif is_user_vip(user_id):
-        status_text = "🚀 VIP Подписчик"
+        status_text = "⭐ VIP Подписчик"
     else:
         status_text = "🔒 Базовый уровень"
         
@@ -1291,7 +1291,7 @@ async def process_subscription_buttons(callback: types.CallbackQuery):
     await callback.answer()
     tier = callback.data
     if "3" in tier:
-        await callback.message.answer("⭐ Вы выбрали тариф за $3/мес. Платежная система в разработке!", parse_mode=ParseMode.HTML)
+        await callback.message.answer("⭐ Вы выбрали PRO тариф за $3/мес. Платежная система в разработке!", parse_mode=ParseMode.HTML)
     elif "5" in tier:
         await callback.message.answer("🚀 VIP тариф за $5/мес. Платежная система в разработке!", parse_mode=ParseMode.HTML)
 
