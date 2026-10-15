@@ -915,7 +915,7 @@ def get_language_inline_keyboard() -> InlineKeyboardMarkup:
 def get_models_inline_keyboard(current_model: str) -> InlineKeyboardMarkup:
     models = [
         ("🔹 Gemini 3.8 Flash", "model_gemini-3.8-flash"),
-        ("🔹 Gemini 3.1 Pro", "model_gemini-3.1-pro"),
+        ("🔹 Gemini 3.1 Pro", "model_gemini-3.1-pro-preview"),
         ("🔹 Gemini 4 Argon", "model_gemini-4-argon"),
         ("🟢 ChatGPT (GPT-4o)", "model_gpt-4o"),
         ("🟢 ChatGPT 6", "model_gpt-6"),
